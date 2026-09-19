@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>실시간 멀티플레이 틱택토</title>
+  <style>
+    body { font-family: 'Pretendard', sans-serif; text-align: center; margin-top: 50px; }
+    #status { font-size: 24px; font-weight: bold; margin-bottom: 20px; color: #333; }
+    
+    /* 3x3 게임 보드 디자인 */
+    .board {
+      display: grid;
+      grid-template-columns: repeat(3, 100px);
+      gap: 5px;
+      justify-content: center;
+      margin-bottom: 20px;
+    }
+    
+    .cell {
+      width: 100px;
+      height: 100px;
+      background-color: #f4f4f4;
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 40px;
+      font-weight: bold;
+      cursor: pointer;
+      box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+      transition: background-color 0.2s;
+    }
+    
+    .cell:hover { background-color: #e0e0e0; }
+    
+    /* X와 O 색상 구분 */
+    .X { color: #ff4757; }
+    .O { color: #1e90ff; }
+    
+    button {
+      padding: 10px 20px; font-size: 16px; font-weight: bold;
+      background-color: #2f3542; color: white; border: none;
+      border-radius: 5px; cursor: pointer;
+    }
+    button:hover { background-color: #57606f; }
+  </style>
+</head>
+<body>
+
+  <h1>🔥 실시간 틱택토</h1>
+  <div id="status">서버 연결 중...</div>
+  
+  <div class="board" id="board">
+    <!-- 자바스크립트로 9개의 칸이 자동 생성됩니다 -->
+  </div>
+  
+  <button id="resetBtn">게임 리셋</button>
+
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+    import { getDatabase, ref, set, onValue } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
+
+    const firebaseConfig = {
+  apiKey: "AIzaSyBdX2nqZYkH_V33s_bV8TRpa-rAIiBWbcQ",
+  authDomain: "test-eb398.firebaseapp.com",
+  databaseURL: "https://test-eb398-default-rtdb.firebaseio.com",
+  projectId: "test-eb398",
+  storageBucket: "test-eb398.firebasestorage.app",
+  messagingSenderId: "891253595501",
+  appId: "1:891253595501:web:3ddde2a9c70708c9100e64",
+  measurementId: "G-YHBCECWKPL"
+};
+
+    const app = initializeApp(firebaseConfig);
+    const db = getDatabase(app);
+    
+    // 파이어베이스 데이터베이스 내의 'tictactoe'라는 공간을 사용합니다.
+    const gameRef = ref(db, 'tictactoe');
+
+    const boardElement = document.getElementById('board');
+    const statusElement = document.getElementById('status');
+    let currentGameState = null;
+
+    // 승리 조건 (가로, 세로, 대각선 인덱스)
+    const winLines = [
+      [0, 1, 2], [3, 4, 5], [6, 7, 8], // 가로
+      [0, 3, 6], [1, 4, 7], [2, 5, 8], // 세로
+      [0, 4, 8], [2, 4, 6]             // 대각선
+    ];
+
+    // HTML에 9개의 칸 만들기
+    for (let i = 0; i < 9; i++) {
+      const cell = document.createElement('div');
+      cell.classList.add('cell');
+      cell.dataset.index = i;
+      
+      // 칸을 클릭했을 때의 이벤트
+      cell.addEventListener('click', () => {
+        if (!currentGameState) return; // 서버 연결 전이면 무시
+        if (currentGameState.winner) return; // 누군가 이겼으면 클릭 방지
+        if (currentGameState.board[i] !== '') return; // 이미 돌이 놓인 곳이면 무시
+
+        // 내 화면의 보드를 업데이트하고
+        const newBoard = [...currentGameState.board];
+        newBoard[i] = currentGameState.turn;
+
+        // 승자가 있는지 판별
+        let newWinner = null;
+        for (let line of winLines) {
+          const [a, b, c] = line;
+          if (newBoard[a] && newBoard[a] === newBoard[b] && newBoard[a] === newBoard[c]) {
+            newWinner = newBoard[a];
+          }
+        }
+        // 승자는 없는데 빈칸이 없으면 무승부
+        if (!newWinner && !newBoard.includes('')) {
+          newWinner = 'draw';
+        }
+
+        // 파이어베이스에 업데이트된 상태 덮어쓰기 (set)
+        set(gameRef, {
+          board: newBoard,
+          turn: currentGameState.turn === 'X' ? 'O' : 'X', // 턴 넘기기
+          winner: newWinner || null
+        });
+      });
+      boardElement.appendChild(cell);
+    }
+
+    // 파이어베이스 데이터가 변할 때마다 내 화면 동기화 (onValue)
+    onValue(gameRef, (snapshot) => {
+      const data = snapshot.val();
+      
+      // 데이터가 아예 없다면(처음 실행) 게임 초기화
+      if (!data) {
+        resetGame();
+        return;
+      }
+      
+      currentGameState = data;
+      const cells = document.querySelectorAll('.cell');
+
+      // 화면에 O, X 그리기
+      cells.forEach((cell, index) => {
+        const val = data.board[index];
+        cell.textContent = val;
+        cell.className = `cell ${val}`; // X, O 색상 적용을 위해 클래스 추가
+      });
+
+      // 상태 메시지 업데이트
+      if (data.winner === 'draw') {
+        statusElement.textContent = "무승부입니다! 🤝";
+      } else if (data.winner) {
+        statusElement.textContent = `🎉 ${data.winner} 플레이어 승리!`;
+      } else {
+        statusElement.textContent = `현재 턴: ${data.turn}`;
+      }
+    });
+
+    // 게임 리셋 함수
+    function resetGame() {
+      set(gameRef, {
+        board: ['', '', '', '', '', '', '', '', ''],
+        turn: 'X',
+        winner: null
+      });
+    }
+
+    document.getElementById('resetBtn').addEventListener('click', resetGame);
+  </script>
+</body>
+</html>
