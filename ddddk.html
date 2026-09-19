@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>프라이빗 룸 틱택토</title>
+  <style>
+    body { font-family: 'Pretendard', sans-serif; text-align: center; margin-top: 50px; background-color: #f8f9fa; }
+    h1 { color: #2c3e50; }
+    
+    /* 로비(방 만들기/입장) 화면 스타일 */
+    #lobby { margin-top: 40px; background: white; padding: 30px; border-radius: 12px; box-shadow: 0 4px 10px rgba(0,0,0,0.05); display: inline-block; }
+    .input-box { padding: 12px; font-size: 16px; width: 150px; text-align: center; font-weight: bold; text-transform: uppercase; border: 2px solid #ddd; border-radius: 6px; }
+    
+    /* 게임 화면 스타일 */
+    #roomCodeDisplay { background: #ffeaa7; display: inline-block; padding: 5px 15px; border-radius: 20px; color: #d35400; font-size: 18px; margin-bottom: 20px; }
+    #status { font-size: 22px; font-weight: bold; margin-bottom: 15px; color: #333; }
+    
+    .board { display: grid; grid-template-columns: repeat(3, 100px); gap: 5px; justify-content: center; margin-bottom: 20px; }
+    .cell { width: 100px; height: 100px; background-color: #eee; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 45px; font-weight: bold; cursor: pointer; box-shadow: 0 4px 6px rgba(0,0,0,0.1); transition: 0.2s; }
+    .cell:hover { background-color: #ddd; }
+    
+    .X { color: #ff4757; }
+    .O { color: #1e90ff; }
+    
+    button { padding: 12px 24px; font-size: 16px; font-weight: bold; background-color: #2f3542; color: white; border: none; border-radius: 6px; cursor: pointer; transition: 0.2s; margin: 5px; }
+    button:hover { background-color: #57606f; }
+    .btn-create { background-color: #ff6b81; }
+    .btn-create:hover { background-color: #ff4757; }
+    .btn-join { background-color: #1e90ff; }
+    .btn-join:hover { background-color: #3742fa; }
+  </style>
+</head>
+<body>
+
+  <h1>🔥 프라이빗 틱택토</h1>
+  
+  <!-- 1. 방 생성 및 입장 로비 화면 -->
+  <div id="lobby">
+    <button id="createRoomBtn" class="btn-create">새로운 방 만들기</button>
+    <div style="margin: 20px 0; color: #888; font-weight: bold;">또는</div>
+    <input type="text" id="joinCodeInput" class="input-box" placeholder="코드 4자리" maxlength="4">
+    <button id="joinRoomBtn" class="btn-join">코드로 입장하기</button>
+  </div>
+
+  <!-- 2. 게임 진행 화면 (처음엔 숨겨져 있음) -->
+  <div id="gameArea" style="display: none;">
+    <h2 id="roomCodeDisplay">방 코드: </h2>
+    
+    <!-- 역할 선택 영역 -->
+    <div id="roleSelection" style="margin-bottom: 15px;">
+      <p style="font-weight: bold; color: #555;">어떤 돌을 선택하시겠습니까?</p>
+      <button id="btnX" class="X">나는 'X' 플레이어</button>
+      <button id="btnO" class="O">나는 'O' 플레이어</button>
+    </div>
+    
+    <div id="myRoleText" style="color: #27ae60; font-weight: bold; margin-bottom: 15px; font-size: 18px;"></div>
+    <div id="status">상대방을 기다리는 중...</div>
+    
+    <div class="board" id="board">
+      <!-- 9칸이 자동으로 생성됩니다 -->
+    </div>
+    
+    <button id="resetBtn" style="margin-top: 20px;">보드 리셋</button>
+  </div>
+
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+    import { getDatabase, ref, set, get, onValue } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-
+      
+    const firebaseConfig = {
+  apiKey: "AIzaSyBdX2nqZYkH_V33s_bV8TRpa-rAIiBWbcQ",
+  authDomain: "test-eb398.firebaseapp.com",
+  databaseURL: "https://test-eb398-default-rtdb.firebaseio.com",
+  projectId: "test-eb398",
+  storageBucket: "test-eb398.firebasestorage.app",
+  messagingSenderId: "891253595501",
+  appId: "1:891253595501:web:3ddde2a9c70708c9100e64",
+  measurementId: "G-YHBCECWKPL"
+};
+
+    const app = initializeApp(firebaseConfig);
+    const db = getDatabase(app);
+    
+    // 게임 상태 변수들
+    let currentRoomCode = null;
+    let gameRef = null;
+    let currentGameState = null;
+    let myRole = null; 
+
+    // 화면 요소들
+    const lobbyDiv = document.getElementById('lobby');
+    const gameAreaDiv = document.getElementById('gameArea');
+    const boardElement = document.getElementById('board');
+    const statusElement = document.getElementById('status');
+    const roleSelectionDiv = document.getElementById('roleSelection');
+    const roomCodeDisplay = document.getElementById('roomCodeDisplay');
+
+    // 승리 조건
+    const winLines = [
+      [0, 1, 2], [3, 4, 5], [6, 7, 8], [0, 3, 6], 
+      [1, 4, 7], [2, 5, 8], [0, 4, 8], [2, 4, 6]
+    ];
+
+    // [기능 1] 방 만들기 기능
+    document.getElementById('createRoomBtn').addEventListener('click', () => {
+      // 4자리 랜덤 문자/숫자 방 코드 생성
+      currentRoomCode = Math.random().toString(36).substring(2, 6).toUpperCase();
+      gameRef = ref(db, 'rooms/' + currentRoomCode);
+      
+      // 구글 서버에 방 데이터 초기화
+      set(gameRef, {
+        board: ['', '', '', '', '', '', '', '', ''],
+        turn: 'X',
+        winner: null
+      });
+      
+      enterGameRoom(currentRoomCode);
+    });
+
+    // [기능 2] 방 입장하기 기능
+    document.getElementById('joinRoomBtn').addEventListener('click', async () => {
+      const code = document.getElementById('joinCodeInput').value.toUpperCase();
+      if (code.length !== 4) return alert('4자리 코드를 입력해주세요!');
+      
+      // 입력한 코드의 방이 서버에 있는지 확인 (get)
+      const tempRef = ref(db, 'rooms/' + code);
+      const snapshot = await get(tempRef);
+      
+      if (snapshot.exists()) {
+        currentRoomCode = code;
+        gameRef = tempRef;
+        enterGameRoom(currentRoomCode);
+      } else {
+        alert('존재하지 않는 방입니다. 방 코드를 다시 확인해주세요.');
+      }
+    });
+
+    // 방에 성공적으로 입장했을 때 화면 전환 함수
+    function enterGameRoom(code) {
+      lobbyDiv.style.display = 'none';
+      gameAreaDiv.style.display = 'block';
+      roomCodeDisplay.textContent = `방 코드: [ ${code} ] - 친구에게 알려주세요!`;
+      
+      // 보드 그리기 (9칸)
+      boardElement.innerHTML = '';
+      for (let i = 0; i < 9; i++) {
+        const cell = document.createElement('div');
+        cell.classList.add('cell');
+        
+        // 칸 클릭 시 이벤트 (턴 검사 및 방어막 포함)
+        cell.addEventListener('click', () => {
+          if (!currentGameState) return; 
+          if (currentGameState.winner) return; 
+          if (currentGameState.board[i] !== '') return; 
+          
+          if (!myRole) return alert('위에서 먼저 X 또는 O 역할을 선택해주세요!');
+          if (currentGameState.turn !== myRole) return alert('당신 턴이 아닙니다! 기다려주세요.');
+
+          const newBoard = [...currentGameState.board];
+          newBoard[i] = currentGameState.turn;
+
+          let newWinner = null;
+          for (let line of winLines) {
+            const [a, b, c] = line;
+            if (newBoard[a] && newBoard[a] === newBoard[b] && newBoard[a] === newBoard[c]) {
+              newWinner = newBoard[a];
+            }
+          }
+          if (!newWinner && !newBoard.includes('')) newWinner = 'draw';
+
+          set(gameRef, { board: newBoard, turn: currentGameState.turn === 'X' ? 'O' : 'X', winner: newWinner || null });
+        });
+        boardElement.appendChild(cell);
+      }
+
+      // 파이어베이스 실시간 동기화 시작
+      onValue(gameRef, (snapshot) => {
+        const data = snapshot.val();
+        if (!data) return;
+        currentGameState = data;
+        
+        const cells = document.querySelectorAll('.cell');
+        cells.forEach((cell, index) => {
+          const val = data.board[index];
+          cell.textContent = val;
+          cell.className = `cell ${val}`; 
+        });
+
+        if (data.winner === 'draw') {
+          statusElement.textContent = "무승부입니다! 🤝";
+        } else if (data.winner) {
+          statusElement.textContent = `🎉 ${data.winner} 플레이어 승리!`;
+        } else {
+          statusElement.textContent = `현재 턴: ${data.turn}`;
+        }
+      });
+    }
+
+    // [기능 3] 내 역할 선택 (X 또는 O)
+    document.getElementById('btnX').addEventListener('click', () => {
+      myRole = 'X';
+      document.getElementById('myRoleText').textContent = "나의 역할 : X";
+      roleSelectionDiv.style.display = 'none';
+    });
+
+    document.getElementById('btnO').addEventListener('click', () => {
+      myRole = 'O';
+      document.getElementById('myRoleText').textContent = "나의 역할 : O";
+      roleSelectionDiv.style.display = 'none';
+    });
+
+    // 게임 리셋 함수
+    document.getElementById('resetBtn').addEventListener('click', () => {
+      if(!gameRef) return;
+      set(gameRef, { board: ['', '', '', '', '', '', '', '', ''], turn: 'X', winner: null });
+    });
+  </script>
+</body>
+</html>
