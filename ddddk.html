@@ -65,22 +65,25 @@
   </div>
 
   <script type="module">
+  
+  <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
-    import { getDatabase, ref, set, get, onValue } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js”;
+    import { getDatabase, ref, set, get, onValue } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
       
     const firebaseConfig = {
-  apiKey: "AIzaSyBdX2nqZYkH_V33s_bV8TRpa-rAIiBWbcQ",
-  authDomain: "test-eb398.firebaseapp.com",
-  databaseURL: "https://test-eb398-default-rtdb.firebaseio.com",
-  projectId: "test-eb398",
-  storageBucket: "test-eb398.firebasestorage.app",
-  messagingSenderId: "891253595501",
-  appId: "1:891253595501:web:3ddde2a9c70708c9100e64",
-  measurementId: "G-YHBCECWKPL"
-};
+      apiKey: "AIzaSyBdX2nqZYkH_V33s_bV8TRpa-rAIiBWbcQ",
+      authDomain: "test-eb398.firebaseapp.com",
+      databaseURL: "https://test-eb398-default-rtdb.firebaseio.com",
+      projectId: "test-eb398",
+      storageBucket: "test-eb398.firebasestorage.app",
+      messagingSenderId: "891253595501",
+      appId: "1:891253595501:web:3ddde2a9c70708c9100e64",
+      measurementId: "G-YHBCECWKPL"
+    };
 
     const app = initializeApp(firebaseConfig);
     const db = getDatabase(app);
+
     
     // 게임 상태 변수들
     let currentRoomCode = null;
