@@ -1,0 +1,645 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>양세찬 게임 (v4)</title>
+  <style>
+    @import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css');
+    
+    * { box-sizing: border-box; }
+    body { font-family: 'Pretendard', sans-serif; background-color: #f0f2f5; margin: 0; padding: 10px; color: #333; text-align: center; }
+    h1 { color: #2c3e50; font-size: 24px; margin-top: 10px; }
+    
+    .screen { display: none; width: 100%; max-width: 500px; margin: 0 auto; background: white; padding: 20px 15px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.08); }
+    .active-screen { display: block; }
+
+    input[type="text"] { width: 100%; padding: 14px; font-size: 16px; border: 2px solid #ddd; border-radius: 8px; margin: 10px 0; outline: none; }
+    input[type="text"]:focus { border-color: #3498db; }
+    button { width: 100%; padding: 14px; font-size: 16px; font-weight: bold; background-color: #3498db; color: white; border: none; border-radius: 8px; cursor: pointer; transition: 0.2s; margin-top: 10px; }
+    button:active { background-color: #2980b9; transform: scale(0.98); }
+    button:disabled { background-color: #bdc3c7; }
+
+    /* 프로필 공통 (사진/이모지 통합) */
+    .avatar-circle { width: 55px; height: 55px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 30px; background-color: #f8f9fa; border: 2px solid #ddd; background-size: cover; background-position: center; margin: 0 auto; }
+    .avatar-large { width: 80px; height: 80px; font-size: 45px; }
+    
+    .profile-grid { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; margin: 15px 0; }
+    .profile-emoji { font-size: 35px; cursor: pointer; padding: 10px; border-radius: 50%; border: 3px solid transparent; background: #f8f9fa; transition: 0.2s; }
+    .profile-emoji.selected { border-color: #e74c3c; background: #ffeaa7; }
+
+    .top-players { display: flex; gap: 10px; overflow-x: auto; padding: 10px; background: #ecf0f1; border-radius: 12px; white-space: nowrap; -webkit-overflow-scrolling: touch; align-items: flex-start; }
+    .player-card { display: inline-flex; flex-direction: column; align-items: center; background: white; padding: 10px; border-radius: 8px; min-width: 90px; box-shadow: 0 2px 5px rgba(0,0,0,0.05); border: 2px solid transparent; flex-shrink: 0; }
+    .player-card.is-turn { border-color: #e74c3c; transform: translateY(-3px); }
+    .player-card.is-done { opacity: 0.5; }
+    .player-name { font-weight: bold; margin-top: 5px; font-size: 13px; text-overflow: ellipsis; overflow: hidden; width:100%; text-align:center;}
+    .player-keyword { color: #e74c3c; font-weight: bold; font-size: 11px; margin-top: 5px; background: #ffeaa7; padding: 4px; border-radius: 4px; white-space: normal; text-align:center;}
+    .player-rank { font-size: 11px; color: #27ae60; font-weight: bold; margin-top: 4px; }
+
+    .mid-section { display: flex; flex-direction: column; gap: 15px; margin-top: 15px; }
+    .center-stage { background: #fffdf5; border: 2px dashed #f1c40f; border-radius: 12px; padding: 15px; display: flex; flex-direction: column; justify-content: center; align-items: center; }
+    .big-name { font-size: 20px; font-weight: bold; margin-bottom: 15px; margin-top: 5px;}
+    
+    .turn-controls { display: flex; gap: 5px; margin-bottom: 10px; width: 100%; }
+    .action-mode-btn { margin-top: 0; background: #ecf0f1; color: #333; border: 2px solid #bdc3c7; }
+    .action-mode-btn.active { background: #2ecc71; color: white; border-color: #27ae60; }
+    
+    .question-box { width: 100%; background: white; padding: 15px; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
+    .answers-list { text-align: left; margin-top: 15px; max-height: 120px; overflow-y: auto; background: #f9f9f9; padding: 10px; border-radius: 8px; }
+    .answer-item { padding: 6px 0; border-bottom: 1px solid #eee; font-size: 13px; }
+
+    .chat-box { background: white; border: 1px solid #ddd; border-radius: 12px; display: flex; flex-direction: column; height: 200px; }
+    .chat-messages { flex: 1; padding: 10px; overflow-y: auto; text-align: left; font-size: 13px; background: #fafafa; }
+    .chat-input-area { display: flex; border-top: 1px solid #ddd; }
+    .chat-input-area input { border: none; margin: 0; border-radius: 0 0 0 12px; flex: 1; padding: 12px; font-size: 14px; }
+    .chat-input-area button { margin: 0; border-radius: 0 0 12px 0; width: 70px; background: #95a5a6; font-size: 14px; padding: 0; }
+    .flex-row { display: flex; gap: 10px; width: 100%;}
+    
+    .kick-btn { background: #e74c3c; color: white; border: none; padding: 4px 8px; font-size: 11px; border-radius: 4px; margin-top: 5px; cursor: pointer; }
+  </style>
+</head>
+<body>
+
+  <h1>양세찬 게임 <span style="font-size:14px; color:#e74c3c;">(v4)</span></h1>
+
+  <!-- 1. 프로필 설정 (사진 업로드 추가) -->
+  <div id="screen-profile" class="screen active-screen">
+    <h2 style="font-size: 18px;">내 프로필을 골라주세요</h2>
+    
+    <div id="myAvatarPreview" class="avatar-circle avatar-large" style="margin-bottom: 10px;">🐶</div>
+    
+    <div style="display: flex; justify-content: center; gap: 10px;">
+      <button id="uploadImgBtn" style="background:#95a5a6; width: auto; padding: 10px 20px; font-size:14px;">📸 내 사진 올리기</button>
+      <input type="file" id="imageInput" accept="image/*" style="display:none;">
+      <button id="resetImgBtn" style="background:#e74c3c; width: auto; padding: 10px 20px; font-size:14px; display:none;">X 사진 지우기</button>
+    </div>
+
+    <div class="profile-grid" id="profileGrid">
+      <div class="profile-emoji selected" data-emoji="🐶">🐶</div>
+      <div class="profile-emoji" data-emoji="🐱">🐱</div>
+      <div class="profile-emoji" data-emoji="🦊">🦊</div>
+      <div class="profile-emoji" data-emoji="🐰">🐰</div>
+      <div class="profile-emoji" data-emoji="🖕">🖕</div>
+      <div class="profile-emoji" data-emoji="🐯">🐯</div>
+      <div class="profile-emoji" data-emoji="🐸">🐸</div>
+      <div class="profile-emoji" data-emoji="🐷">🐷</div>
+    </div>
+    
+    <input type="text" id="nicknameInput" placeholder="닉네임 (최대 6자)" maxlength="6">
+    <button id="saveProfileBtn">시작하기</button>
+  </div>
+
+  <!-- 2. 로비 -->
+  <div id="screen-lobby" class="screen">
+    <button id="createRoomBtn" style="background-color: #e74c3c;">새로운 게임 방 만들기</button>
+    <div style="margin: 20px 0; color: #7f8c8d; font-weight: bold; font-size: 14px;">또는 코드로 참여</div>
+    <div class="flex-row">
+      <input type="text" id="joinCodeInput" placeholder="코드 4자리" maxlength="4" style="text-transform: uppercase; text-align: center; margin:0;">
+      <button id="joinRoomBtn" style="margin:0; width: 120px;">입장</button>
+    </div>
+  </div>
+
+  <!-- 3. 대기실 (방 폭파, 방 나가기 추가) -->
+  <div id="screen-waiting" class="screen">
+    <h2 style="font-size: 18px;">방 코드: <span id="displayRoomCode" style="color: #e74c3c; font-size: 24px;"></span></h2>
+    <p style="font-size: 14px; color: #555;">현재 참가자 (최소 3명 필요)</p>
+    
+    <div id="waitingPlayerList" class="profile-grid"></div>
+    <p id="waitingStatusText" style="color: #7f8c8d; font-size: 14px; font-weight: bold; margin-top: 15px;"></p>
+    
+    <div class="flex-row" style="margin-top: 15px;">
+      <button id="leaveRoomBtn" style="background-color: #95a5a6; display: none;">방 나가기</button>
+      <button id="destroyRoomBtn" style="background-color: #e74c3c; display: none;">방 폭파하기</button>
+      <button id="startGameBtn" style="background-color: #27ae60; display: none;">게임 시작!</button>
+    </div>
+  </div>
+
+  <!-- 4. 키워드 설정 -->
+  <div id="screen-keyword" class="screen">
+    <h2 style="font-size: 18px; color: #8e44ad;">정답 달아주기 타임!</h2>
+    <p style="font-size: 14px; color: #555;">이 플레이어의 머리 위에 붙일<br>키워드를 입력해주세요.</p>
+    <div id="targetProfileArea" style="margin: 15px 0;"></div>
+    <h3 id="targetName" style="margin-bottom: 5px;">OOO</h3>
+    <input type="text" id="keywordInput" placeholder="예: 아이유, 사과, 유재석 등">
+    <button id="submitKeywordBtn">정답 확정</button>
+    <p id="keywordWaitText" style="display: none; color: #27ae60; font-weight: bold; font-size: 14px; margin-top: 15px;">다른 사람들이 모두 정답을 정할 때까지<br>기다리는 중입니다...</p>
+  </div>
+
+  <!-- 5. 메인 게임 -->
+  <div id="screen-game" class="screen" style="max-width: 600px; padding: 10px;">
+    <div id="gamePlayerList" class="top-players"></div>
+    <div class="mid-section">
+      <div class="center-stage" id="centerStage">
+        <div id="turnProfileArea" style="margin-bottom: 5px;"></div>
+        <div class="big-name" id="turnName">OOO님의 턴</div>
+        
+        <div id="myTurnControls" style="display: none; width: 100%; flex-direction: column;">
+          <div class="turn-controls">
+            <button class="action-mode-btn active" id="modeQuestionBtn">질문하기</button>
+            <button class="action-mode-btn" id="modeGuessBtn">정답 맞추기</button>
+          </div>
+          <div class="question-box">
+            <div class="flex-row">
+              <input type="text" id="turnInput" placeholder="질문을 입력하세요..." style="margin:0;">
+              <button id="turnSubmitBtn" style="margin:0; width: 70px;">전송</button>
+            </div>
+            <div id="answersList" class="answers-list" style="display:none;"></div>
+            <button id="endTurnBtn" style="display: none; background: #e67e22;">턴 넘기기 (답변 완료)</button>
+          </div>
+        </div>
+
+        <div id="otherTurnView" style="display: none; width: 100%;">
+          <div class="question-box">
+            <h3 id="currentQuestionText" style="color: #34495e; font-size: 15px; margin-top:0;">질문을 기다리는 중...</h3>
+            <div id="giveAnswerBox" style="display: none; margin-top: 10px;">
+              <div class="flex-row">
+                <input type="text" id="giveAnswerInput" placeholder="답변 (예/아니오 등)" style="margin:0;">
+                <button id="giveAnswerBtn" style="margin:0; width: 70px;">입력</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="chat-box">
+        <div class="chat-messages" id="chatMessages"></div>
+        <div class="chat-input-area">
+          <input type="text" id="chatInput" placeholder="채팅 치기...">
+          <button id="chatSendBtn">전송</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 6. 게임 종료 -->
+  <div id="screen-result" class="screen">
+    <h2>🎉 게임 종료!</h2>
+    <h3 id="victoryMessage" style="color: #e74c3c;"></h3>
+    <div id="rankList" style="text-align: left; display: inline-block; width: 100%; margin-top: 10px;"></div>
+    <button onclick="location.reload()" style="margin-top: 30px;">처음으로 돌아가기</button>
+  </div>
+
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+    import { getDatabase, ref, set, get, update, onValue, push, remove } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
+      
+    // 🚨 여기에 진짜 파베 키를 덮어씌워주세요! 🚨
+    const firebaseConfig = {
+      apiKey: "AIzaSyBdX2nqZYkH_V33s_bV8TRpa-rAIiBWbcQ",
+      authDomain: "test-eb398.firebaseapp.com",
+      databaseURL: "https://test-eb398-default-rtdb.firebaseio.com",
+      projectId: "test-eb398",
+      storageBucket: "test-eb398.firebasestorage.app",
+      messagingSenderId: "891253595501",
+      appId: "1:891253595501:web:3ddde2a9c70708c9100e64",
+      measurementId: "G-YHBCECWKPL"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const db = getDatabase(app);
+
+    let myId = "user_" + Math.random().toString(36).substr(2, 9);
+    let myName = "";
+    let myEmoji = "🐶";
+    let myAvatar = null; // 업로드한 사진(Base64) 저장
+    let currentRoomCode = null, roomRef = null, gameState = null, isHost = false, currentMode = "question";
+
+    function showScreen(screenId) {
+      document.querySelectorAll('.screen').forEach(el => el.classList.remove('active-screen'));
+      document.getElementById('screen-' + screenId).classList.add('active-screen');
+    }
+
+    // 아바타 렌더링 헬퍼 함수
+    function getAvatarHtml(player, isLarge = false) {
+      const sizeClass = isLarge ? "avatar-large" : "";
+      if (player.avatar) {
+        return `<div class="avatar-circle ${sizeClass}" style="background-image:url('${player.avatar}')"></div>`;
+      }
+      return `<div class="avatar-circle ${sizeClass}">${player.emoji}</div>`;
+    }
+
+    // [v4 추가] 이미지 업로드 및 압축 로직
+    document.getElementById('uploadImgBtn').addEventListener('click', () => document.getElementById('imageInput').click());
+    
+    document.getElementById('imageInput').addEventListener('change', function(e) {
+      const file = e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = function(event) {
+        const img = new Image();
+        img.onload = function() {
+          // 캔버스를 이용해 서버에 부담 안 가게 120x120 픽셀로 강제 압축
+          const canvas = document.createElement('canvas');
+          const MAX_SIZE = 120;
+          let width = img.width, height = img.height;
+          
+          if (width > height) { if (width > MAX_SIZE) { height *= MAX_SIZE / width; width = MAX_SIZE; } }
+          else { if (height > MAX_SIZE) { width *= MAX_SIZE / height; height = MAX_SIZE; } }
+          
+          canvas.width = width; canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0, width, height);
+          
+          // 압축된 이미지를 텍스트(Base64)로 변환
+          myAvatar = canvas.toDataURL('image/jpeg', 0.8); 
+          document.getElementById('myAvatarPreview').style.backgroundImage = `url('${myAvatar}')`;
+          document.getElementById('myAvatarPreview').innerText = "";
+          
+          document.getElementById('uploadImgBtn').style.display = "none";
+          document.getElementById('resetImgBtn').style.display = "inline-block";
+          document.getElementById('profileGrid').style.opacity = "0.3"; // 이모지 비활성화 효과
+        };
+        img.src = event.target.result;
+      }
+      reader.readAsDataURL(file);
+    });
+
+    document.getElementById('resetImgBtn').addEventListener('click', () => {
+      myAvatar = null;
+      document.getElementById('myAvatarPreview').style.backgroundImage = "none";
+      document.getElementById('myAvatarPreview').innerText = myEmoji;
+      document.getElementById('uploadImgBtn').style.display = "inline-block";
+      document.getElementById('resetImgBtn').style.display = "none";
+      document.getElementById('profileGrid').style.opacity = "1";
+      document.getElementById('imageInput').value = "";
+    });
+
+    // 기본 이모지 선택
+    document.querySelectorAll('.profile-emoji').forEach(el => {
+      el.addEventListener('click', (e) => {
+        if(myAvatar) return; // 사진 올렸을 땐 이모지 터치 무시
+        document.querySelectorAll('.profile-emoji').forEach(img => img.classList.remove('selected'));
+        e.target.classList.add('selected');
+        myEmoji = e.target.dataset.emoji;
+        document.getElementById('myAvatarPreview').innerText = myEmoji;
+      });
+    });
+
+    document.getElementById('saveProfileBtn').addEventListener('click', () => {
+      myName = document.getElementById('nicknameInput').value.trim();
+      if(myName.length < 1) return alert("닉네임을 입력해주세요!");
+      showScreen('lobby');
+    });
+
+    // 방 만들기 / 입장
+    document.getElementById('createRoomBtn').addEventListener('click', async () => {
+      currentRoomCode = Math.random().toString(36).substring(2, 6).toUpperCase();
+      roomRef = ref(db, 'rooms/' + currentRoomCode);
+      isHost = true;
+      await set(roomRef, { state: 'waiting', host: myId, players: { [myId]: { name: myName, emoji: myEmoji, avatar: myAvatar, rank: null, targetId: null } } });
+      joinRoomEventSetup();
+    });
+
+    document.getElementById('joinRoomBtn').addEventListener('click', async () => {
+      const code = document.getElementById('joinCodeInput').value.toUpperCase();
+      const tempRef = ref(db, 'rooms/' + code);
+      const snapshot = await get(tempRef);
+      
+      if(snapshot.exists()) {
+        const data = snapshot.val();
+        if(data.state !== 'waiting') return alert("이미 시작된 방이거나 폭파된 방입니다!");
+        if(Object.keys(data.players || {}).length >= 10) return alert("방이 꽉 찼습니다.");
+        
+        currentRoomCode = code; roomRef = tempRef;
+        await update(ref(db, `rooms/${currentRoomCode}/players/${myId}`), { name: myName, emoji: myEmoji, avatar: myAvatar, rank: null, targetId: null });
+        joinRoomEventSetup();
+      } else { alert("방 코드를 확인해주세요."); }
+    });
+
+    function joinRoomEventSetup() {
+      document.getElementById('displayRoomCode').innerText = currentRoomCode;
+      showScreen('waiting');
+      
+      onValue(ref(db, `rooms/${currentRoomCode}/chat`), (snap) => {
+        const chatBox = document.getElementById('chatMessages');
+        chatBox.innerHTML = '';
+        if(snap.val()) {
+          Object.values(snap.val()).forEach(msg => {
+            chatBox.innerHTML += `<div style="margin-bottom:4px;"><b>${msg.name}:</b>${msg.text}</div>`;
+          });
+          chatBox.scrollTop = chatBox.scrollHeight;
+        }
+      });
+
+      // 방 상태 실시간 감지
+      onValue(roomRef, (snapshot) => {
+        gameState = snapshot.val();
+        
+        // [v4 추가] 방이 폭파되었거나 방장이 나간 경우
+        if(!gameState || gameState.state === 'destroyed') {
+           if(currentRoomCode) {
+               alert("방장이 방을 취소(폭파)했습니다.");
+               location.reload();
+           }
+           return;
+        }
+
+        // [v4 추가] 내가 강퇴당했거나 탈퇴한 경우 (대기실에 있는데 내 데이터가 사라짐)
+        if (gameState.players && !gameState.players[myId] && document.getElementById('screen-waiting').classList.contains('active-screen')) {
+           alert("방을 나갔거나, 방장에 의해 강퇴당했습니다.");
+           location.reload();
+           return;
+        }
+
+        if(gameState) {
+          try { updateUIBasedOnState(); } catch(e) { console.error(e); }
+        }
+      });
+    }
+
+    function updateUIBasedOnState() {
+      const playerIds = Object.keys(gameState.players || {});
+      const myData = gameState.players[myId];
+      
+      if (gameState.state === 'waiting') {
+        const waitingList = document.getElementById('waitingPlayerList');
+        waitingList.innerHTML = '';
+        
+        playerIds.forEach(pid => {
+          const p = gameState.players[pid];
+          const avatarHtml = getAvatarHtml(p);
+          // 방장에게만 보이는 [추방] 버튼 추가
+          const kickBtnHtml = (isHost && pid !== myId) ? `<button class="kick-btn" data-id="${pid}">추방</button>` : ``;
+          
+          waitingList.innerHTML += `<div style="display:flex; flex-direction:column; align-items:center;">
+             ${avatarHtml}
+             <div style="font-size:12px; font-weight:bold; margin-top:5px;">${p.name}</div>
+             ${kickBtnHtml}
+          </div>`;
+        });
+
+        // 추방 버튼 이벤트 등록
+        waitingList.querySelectorAll('.kick-btn').forEach(btn => {
+           btn.addEventListener('click', (e) => {
+               const targetId = e.target.dataset.id;
+               if(confirm("정말 이 플레이어를 추방하시겠습니까?")) {
+                   remove(ref(db, `rooms/${currentRoomCode}/players/${targetId}`));
+               }
+           });
+        });
+
+        document.getElementById('waitingStatusText').innerText = `현재 인원: ${playerIds.length}명 (최소 3명 필요)`;
+        
+        // [v4 추가] 방장 / 참가자 권한 버튼 분리
+        if(isHost) {
+           document.getElementById('destroyRoomBtn').style.display = "block";
+           document.getElementById('leaveRoomBtn').style.display = "none";
+           // 최소 인원 다시 3명으로 복구!
+           document.getElementById('startGameBtn').style.display = (playerIds.length >= 3) ? 'block' : 'none';
+        } else {
+           document.getElementById('destroyRoomBtn').style.display = "none";
+           document.getElementById('startGameBtn').style.display = "none";
+           document.getElementById('leaveRoomBtn').style.display = "block";
+        }
+      }
+
+      if (gameState.state === 'keyword_setup') {
+        if(!document.getElementById('screen-keyword').classList.contains('active-screen')) {
+          showScreen('keyword');
+          if(myData && myData.targetId && gameState.players[myData.targetId]) {
+            const targetPlayer = gameState.players[myData.targetId];
+            document.getElementById('targetProfileArea').innerHTML = getAvatarHtml(targetPlayer, true);
+            document.getElementById('targetName').innerText = `${targetPlayer.name}님의 정답`;
+          }
+        }
+        
+        let allKeywordsSet = true;
+        playerIds.forEach(pid => { if (!gameState.players[pid].keyword) allKeywordsSet = false; });
+        if (allKeywordsSet && isHost) update(roomRef, { state: 'playing', turnIndex: 0, turnOrder: playerIds, currentAction: null, rankCounter: 1 });
+      }
+
+      if (gameState.state === 'playing') {
+        if(!document.getElementById('screen-game').classList.contains('active-screen')) showScreen('game');
+        
+        const topList = document.getElementById('gamePlayerList');
+        topList.innerHTML = '';
+        let activePlayers = 0;
+        const turnPlayerId = gameState.turnOrder[gameState.turnIndex];
+
+        playerIds.forEach(pid => {
+          const p = gameState.players[pid];
+          let displayKeyword = (!p.rank && pid === myId) ? "???" : p.keyword;
+          if (!p.rank && !p.isLoser) activePlayers++;
+          
+          topList.innerHTML += `
+            <div class="player-card ${pid === turnPlayerId ? 'is-turn' : ''} ${p.rank ? 'is-done' : ''}">
+              ${getAvatarHtml(p)}
+              <div class="player-name">${p.name}</div>
+              <div class="player-keyword">${displayKeyword}</div>
+              ${p.rank ? `<div class="player-rank">${p.rank}등 통과!</div>` : ''}
+              ${p.isLoser ? `<div class="player-rank" style="color:red;">패배</div>` : ''}
+            </div>
+          `;
+        });
+
+        if (activePlayers === 1 && !gameState.finalChance) {
+          const lastPlayerId = playerIds.find(pid => !gameState.players[pid].rank && !gameState.players[pid].isLoser);
+          if (isHost) update(roomRef, { finalChance: true, turnIndex: gameState.turnOrder.indexOf(lastPlayerId) });
+        }
+
+        if (activePlayers === 0 || gameState.gameOver) {
+          if (isHost) update(roomRef, { state: 'game_over' });
+          return;
+        }
+
+        const tp = gameState.players[turnPlayerId];
+        document.getElementById('turnProfileArea').innerHTML = getAvatarHtml(tp, true);
+        document.getElementById('turnName').innerText = gameState.finalChance ? `🚨 ${tp.name}님 마지막 기회!` : `${tp.name}님의 턴`;
+
+        if (turnPlayerId === myId) {
+          document.getElementById('myTurnControls').style.display = 'flex';
+          document.getElementById('otherTurnView').style.display = 'none';
+          document.getElementById('turnInput').disabled = false;
+          document.getElementById('turnSubmitBtn').disabled = false;
+          
+          if (gameState.currentAction && gameState.currentAction.type === 'question') {
+            document.getElementById('turnInput').value = gameState.currentAction.text;
+            document.getElementById('turnInput').disabled = true;
+            document.getElementById('turnSubmitBtn').disabled = true;
+            
+            const aList = document.getElementById('answersList');
+            aList.style.display = 'block';
+            aList.innerHTML = '<div style="font-size:12px; font-weight:bold; color:#7f8c8d; margin-bottom:5px;">받은 답변</div>';
+            let answerCount = 0;
+            if (gameState.currentAction.answers) {
+               Object.keys(gameState.currentAction.answers).forEach(aid => {
+                  aList.innerHTML += `<div class="answer-item"><b>${gameState.players[aid].name}:</b> ${gameState.currentAction.answers[aid]}</div>`;
+                  answerCount++;
+               });
+            }
+            if (answerCount >= (activePlayers - 1) && !gameState.finalChance) document.getElementById('endTurnBtn').style.display = 'block';
+            else if (gameState.finalChance) document.getElementById('endTurnBtn').style.display = 'block';
+          } else {
+             document.getElementById('endTurnBtn').style.display = 'none';
+             document.getElementById('answersList').style.display = 'none';
+          }
+        } else {
+          document.getElementById('myTurnControls').style.display = 'none';
+          document.getElementById('otherTurnView').style.display = 'block';
+          
+          if (gameState.currentAction && gameState.currentAction.type === 'question') {
+             document.getElementById('currentQuestionText').innerText = `Q: ${gameState.currentAction.text}`;
+             if (!myData.rank && (!gameState.currentAction.answers || !gameState.currentAction.answers[myId])) {
+               document.getElementById('giveAnswerBox').style.display = 'block';
+             } else {
+               document.getElementById('giveAnswerBox').style.display = 'none';
+             }
+          } else if (gameState.currentAction && gameState.currentAction.type === 'guess') {
+             document.getElementById('currentQuestionText').innerText = `🤔 정답 시도 중: "${gameState.currentAction.text}"`;
+             document.getElementById('giveAnswerBox').style.display = 'none';
+          } else {
+             document.getElementById('currentQuestionText').innerText = `질문을 고민하는 중...`;
+             document.getElementById('giveAnswerBox').style.display = 'none';
+          }
+        }
+      }
+
+      if (gameState.state === 'game_over') {
+        showScreen('result');
+        const rList = document.getElementById('rankList');
+        rList.innerHTML = '';
+        let loserName = null;
+        
+        playerIds.sort((a,b) => (gameState.players[a].rank || 99) - (gameState.players[b].rank || 99)).forEach(pid => {
+          const p = gameState.players[pid];
+          if(p.isLoser) loserName = p.name;
+          else {
+             rList.innerHTML += `<div style="background:#ecf0f1; padding:10px; border-radius:8px; margin-bottom:8px; display:flex; align-items:center; gap:10px;">
+                ${getAvatarHtml(p)} <div><b>${p.rank}등: ${p.name}</b><br><span style="font-size:12px;">(정답: ${p.keyword})</span></div>
+             </div>`;
+          }
+        });
+        document.getElementById('victoryMessage').innerText = loserName ? `최후의 1인 ${loserName} 실패! 전원 승리!` : `모두가 정답을 맞췄습니다!`;
+      }
+    }
+
+    // [v4 추가] 방장 - 방 폭파
+    document.getElementById('destroyRoomBtn').addEventListener('click', () => {
+       if(confirm("정말 방을 폭파하시겠습니까? 모든 참가자가 튕깁니다.")) {
+          update(roomRef, { state: 'destroyed' });
+       }
+    });
+
+    // [v4 추가] 참가자 - 방 나가기
+    document.getElementById('leaveRoomBtn').addEventListener('click', () => {
+       if(confirm("방에서 나가시겠습니까?")) {
+          remove(ref(db, `rooms/${currentRoomCode}/players/${myId}`));
+       }
+    });
+
+    // 게임 시작 버튼
+    document.getElementById('startGameBtn').addEventListener('click', async () => {
+      try {
+        const playerIds = Object.keys(gameState.players || {});
+        if(playerIds.length < 3) return alert("최소 3명이 필요합니다."); // 3명으로 복구
+
+        const shuffled = [...playerIds].sort(() => Math.random() - 0.5);
+        const updates = {};
+        
+        for(let i=0; i<shuffled.length; i++) {
+          const me = shuffled[i];
+          const target = shuffled[(i+1) % shuffled.length];
+          updates[`players/${me}/targetId`] = target;
+        }
+        updates[`state`] = 'keyword_setup';
+        
+        await update(roomRef, updates);
+      } catch (err) { alert("시작 실패! 사유: " + err.message); }
+    });
+
+    document.getElementById('submitKeywordBtn').addEventListener('click', () => {
+      const kw = document.getElementById('keywordInput').value.trim();
+      if(!kw) return;
+      update(ref(db, `rooms/${currentRoomCode}/players/${gameState.players[myId].targetId}`), { keyword: kw });
+      document.getElementById('submitKeywordBtn').style.display = 'none';
+      document.getElementById('keywordInput').disabled = true;
+      document.getElementById('keywordWaitText').style.display = 'block';
+    });
+
+    document.getElementById('modeQuestionBtn').addEventListener('click', (e) => {
+      currentMode = "question";
+      e.target.classList.add('active'); document.getElementById('modeGuessBtn').classList.remove('active');
+      document.getElementById('turnInput').placeholder = "질문을 입력하세요...";
+    });
+    
+    document.getElementById('modeGuessBtn').addEventListener('click', (e) => {
+      currentMode = "guess";
+      e.target.classList.add('active'); document.getElementById('modeQuestionBtn').classList.remove('active');
+      document.getElementById('turnInput').placeholder = "내 머리위 정답은...?";
+    });
+
+    // V3의 안정적인 정답 처리 & 턴 스킵 로직 유지
+    document.getElementById('turnSubmitBtn').addEventListener('click', () => {
+      const text = document.getElementById('turnInput').value.trim();
+      if(!text) return;
+
+      if(currentMode === "question") {
+        update(roomRef, { currentAction: { type: 'question', text: text, answers: {} } });
+      } else {
+        const isCorrect = text.replace(/\s/g, '') === gameState.players[myId].keyword.replace(/\s/g, '');
+        const updates = {};
+        updates['currentAction'] = { type: 'guess', text: text };
+
+        if(isCorrect) {
+           alert("정답입니다! 🎉 통과하셨습니다.");
+           updates[`players/${myId}/rank`] = gameState.rankCounter;
+           updates[`rankCounter`] = gameState.rankCounter + 1;
+        } else {
+           alert("틀렸습니다! 삐- ❌");
+           if(gameState.finalChance) {
+              updates[`players/${myId}/isLoser`] = true;
+              updates[`gameOver`] = true;
+           }
+        }
+
+        if(isCorrect || !gameState.finalChance) {
+           let nextIndex = (gameState.turnIndex + 1) % gameState.turnOrder.length;
+           for(let i=0; i<10; i++) {
+              const pid = gameState.turnOrder[nextIndex];
+              const p = gameState.players[pid];
+              const isJustRanked = (pid === myId && isCorrect);
+              if (p.rank === null && !p.isLoser && !isJustRanked) break;
+              nextIndex = (nextIndex + 1) % gameState.turnOrder.length;
+           }
+           updates['turnIndex'] = nextIndex;
+           updates['currentAction'] = null;
+        }
+        update(roomRef, updates);
+        document.getElementById('turnInput').value = '';
+      }
+    });
+
+    document.getElementById('giveAnswerBtn').addEventListener('click', () => {
+       const ans = document.getElementById('giveAnswerInput').value.trim();
+       if(!ans) return;
+       update(ref(db, `rooms/${currentRoomCode}/currentAction/answers`), { [myId]: ans });
+       document.getElementById('giveAnswerInput').value = '';
+    });
+
+    document.getElementById('endTurnBtn').addEventListener('click', () => {
+       const updates = {};
+       let nextIndex = (gameState.turnIndex + 1) % gameState.turnOrder.length;
+       for(let i=0; i<10; i++) {
+          const pid = gameState.turnOrder[nextIndex];
+          const p = gameState.players[pid];
+          if(p.rank === null && !p.isLoser) break;
+          nextIndex = (nextIndex + 1) % gameState.turnOrder.length;
+       }
+       updates['turnIndex'] = nextIndex;
+       updates['currentAction'] = null;
+       update(roomRef, updates);
+       document.getElementById('turnInput').value = '';
+    });
+
+    document.getElementById('chatSendBtn').addEventListener('click', () => {
+      const text = document.getElementById('chatInput').value.trim();
+      if(!text) return;
+      push(ref(db, `rooms/${currentRoomCode}/chat`), { name: myName, text: text });
+      document.getElementById('chatInput').value = '';
+    });
+
+    document.getElementById('chatInput').addEventListener('keypress', (e) => { if(e.key === 'Enter') document.getElementById('chatSendBtn').click(); });
+    document.getElementById('turnInput').addEventListener('keypress', (e) => { if(e.key === 'Enter') document.getElementById('turnSubmitBtn').click(); });
+  </script>
+</body>
+</html>
