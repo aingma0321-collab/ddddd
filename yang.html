@@ -420,7 +420,7 @@
         updates[`rooms/${currentRoomCode}/players/${shuffled[i]}/targetId`] = shuffled[(i+1) % shuffled.length];
       }
       updates[`rooms/${currentRoomCode}/state`] = 'keyword_setup';
-      update(db, updates);
+      update(ref(db), updates);
     });
 
     document.getElementById('submitKeywordBtn').addEventListener('click', () => {
