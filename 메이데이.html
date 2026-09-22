@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>메이데이 마이스 (Mayday Mice)</title>
+    <!-- 폰트: 디지털 화면용 -->
+    <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap" rel="stylesheet">
+    <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-database-compat.js"></script>
+    
+    <style>
+        /* 기본 배경 - 어두운 금속 느낌 */
+        body { font-family: 'Arial', sans-serif; background: #1a1a1a; color: #ddd; text-align: center; margin: 0; padding: 20px; }
+        
+        /* 금속 패널 공통 스타일 */
+        .panel {
+            background: linear-gradient(135deg, #3a3a3a, #222);
+            border: 4px solid #555;
+            box-shadow: inset 0 0 15px #000, 5px 5px 15px rgba(0,0,0,0.8);
+            border-radius: 12px;
+            padding: 25px;
+            margin: 20px auto;
+            max-width: 500px;
+            position: relative;
+        }
+        /* 패널 나사못 장식 */
+        .panel::before, .panel::after {
+            content: ''; position: absolute; width: 10px; height: 10px; background: #111; border-radius: 50%; box-shadow: inset 1px 1px 2px #555;
+        }
+        .panel::before { top: 10px; left: 10px; }
+        .panel::after { top: 10px; right: 10px; }
+
+        /* 입력 및 일반 버튼 */
+        input { padding: 12px; font-size: 18px; border-radius: 5px; border: 2px solid #000; background: #111; color: #0f0; outline: none; text-align: center; font-family: 'Share Tech Mono', monospace; text-transform: uppercase; letter-spacing: 2px; }
+        
+        .main-btn { padding: 12px 25px; font-size: 18px; border: none; border-radius: 5px; cursor: pointer; font-weight: bold; box-shadow: 0 4px 0 #111; transition: 0.1s; text-transform: uppercase; }
+        .main-btn:active { transform: translateY(4px); box-shadow: 0 0 0 #111; }
+        .btn-green { background: #28a745; color: white; box-shadow: 0 4px 0 #145523; }
+        .btn-blue { background: #007bff; color: white; box-shadow: 0 4px 0 #004085; }
+
+        /* 대기실 */
+        #waiting-room { display: none; background: #2a2a2a; border: 3px dashed #ffcc00; }
+        #wait-code { font-family: 'Share Tech Mono', monospace; font-size: 40px; color: #ffcc00; text-shadow: 0 0 10px #ffcc00; }
+
+        /* ================= 역할별 UI 스타일 ================= */
+        .role-ui { display: none; }
+        .role-title { font-size: 20px; color: #aaa; border-bottom: 2px solid #444; padding-bottom: 10px; margin-top: 0; text-shadow: 1px 1px 0 #000; }
+
+        /* 1. 조종사: 기계식 3D 조종간 버튼 */
+        .yoke-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 20px; }
+        .yoke-btn {
+            background: linear-gradient(to bottom, #777, #444);
+            border: 2px solid #222;
+            color: #fff; font-weight: bold; font-size: 18px;
+            height: 80px; border-radius: 10px;
+            box-shadow: 0 8px 0 #111, inset 0 2px 2px rgba(255,255,255,0.2);
+            cursor: pointer; transition: 0.1s; text-shadow: -1px -1px 0 #000;
+        }
+        .yoke-btn:active { transform: translateY(8px); box-shadow: 0 0 0 #111, inset 0 2px 5px rgba(0,0,0,0.5); }
+        .push-pull { background: linear-gradient(to bottom, #d9534f, #c9302c); } /* 상승/하강은 눈에 띄게 붉은색 */
+
+        /* 2. 지도: 레이더 모니터 (CRT 효과) */
+        .radar-container { position: relative; width: 350px; height: 350px; margin: 0 auto; background: #000; border-radius: 50%; padding: 10px; border: 10px solid #222; box-shadow: inset 0 0 20px #000, 0 0 15px rgba(0,255,0,0.2); }
+        #radar-canvas { background: radial-gradient(circle, #003300, #001100); border-radius: 50%; border: 2px solid #0f0; width: 100%; height: 100%; }
+        /* 스캔라인 효과 */
+        .radar-container::after { content: ''; position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%), linear-gradient(90deg, rgba(255, 0, 0, 0.06), rgba(0, 255, 0, 0.02), rgba(0, 0, 255, 0.06)); background-size: 100% 4px, 3px 100%; pointer-events: none; border-radius: 50%; }
+        #map-error { display: none; position: absolute; top: 30%; left: 10%; right: 10%; background: red; color: white; padding: 20px; font-weight: bold; border: 4px solid yellow; z-index: 10; animation: blink 0.5s infinite; }
+
+        /* 3. 통신: 무전기 화면 */
+        .radio-lcd { background: #1a331a; border: 5px inset #111; padding: 15px; margin-bottom: 20px; height: 80px; display: flex; align-items: center; justify-content: center; box-shadow: inset 0 0 15px #000; }
+        .radio-text { font-family: 'Share Tech Mono', monospace; font-size: 24px; color: #44ff44; text-shadow: 0 0 8px #44ff44; margin: 0; }
+        .radio-btn { width: 100%; height: 60px; background: linear-gradient(to bottom, #555, #222); border: 3px solid #111; color: white; font-size: 20px; font-weight: bold; border-radius: 8px; cursor: pointer; box-shadow: 0 5px 0 #000; }
+        .radio-btn:active { transform: translateY(5px); box-shadow: 0 0 0 #000; }
+        .radio-btn:disabled { background: #333; color: #777; cursor: not-allowed; transform: translateY(5px); box-shadow: 0 0 0 #000; }
+
+        /* 4. 계기판 (TCAS Annunciator) */
+        .annunciator-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; }
+        .warn-light { background: #110000; border: 3px solid #000; padding: 20px; color: #330000; font-family: 'Share Tech Mono', monospace; font-size: 22px; font-weight: bold; text-shadow: none; border-radius: 5px; box-shadow: inset 0 0 10px #000; transition: 0.1s; display: flex; align-items: center; justify-content: center; height: 60px; }
+        .warn-active { background: #ff0000; color: #fff; text-shadow: 0 0 10px #fff; box-shadow: inset 0 0 15px #a00, 0 0 20px red; border-color: #faa; animation: blink 0.4s infinite; }
+
+        /* 5. 수리: 기계식 스위치 패널 */
+        .wire-section { border: 2px dashed #666; padding: 15px; background: #222; margin-bottom: 15px; }
+        .wire-btn { width: 30%; height: 50px; margin: 5px; border-radius: 25px; border: 4px solid #111; font-weight: bold; cursor: pointer; color: white; box-shadow: 0 4px 0 #000; }
+        .wire-btn:active { transform: translateY(4px); box-shadow: 0 0 0 #000; }
+
+        @keyframes blink { 50% { opacity: 0.3; } }
+        
+        #gameLog { font-family: 'Share Tech Mono', monospace; background: #000; padding: 15px; border: 2px solid #444; color: #0f0; max-width: 500px; margin: 20px auto; height: 100px; overflow-y: auto; text-align: left; font-size: 14px; box-shadow: inset 0 0 10px #000; }
+    </style>
+</head>
+<body>
+    <h1 style="font-family: 'Share Tech Mono', monospace; color: #fff; letter-spacing: 2px; margin-bottom: 5px;">✈️ MAYDAY MICE ✈️</h1>
+    
+    <!-- 1. 로비 -->
+    <div id="lobby" class="panel">
+        <h2 style="margin-top:0;">관제 센터 접속</h2>
+        <div style="margin-bottom: 20px; padding-bottom: 20px; border-bottom: 2px solid #444;">
+            <button class="main-btn btn-green" onclick="createRoom()" style="width:100%;">[ 통신 개설 ] 방 만들기</button>
+        </div>
+        <div>
+            <input type="text" id="roomInput" placeholder="주파수 코드 (4자리)" autocomplete="off" maxlength="4"><br><br>
+            <button class="main-btn btn-blue" onclick="joinRoom()" style="width:100%;">[ 신호 연결 ] 참가하기</button>
+        </div>
+    </div>
+
+    <!-- 2. 대기실 -->
+    <div id="waiting-room" class="panel">
+        <h2 style="color: #ffcc00; margin-top:0;">⏳ PRE-FLIGHT CHECK</h2>
+        <h1 id="wait-code">ABCD</h1>
+        <p>배정된 임무: <strong id="wait-role" style="color: #0f0; font-size: 22px;"></strong></p>
+        <h3 style="color: #ccc; border: 2px solid #555; padding: 10px; background: #111;">승무원 탑승: <span id="wait-count" style="color: #fff; font-size: 26px;">1</span> / 5</h3>
+        <button class="main-btn" onclick="fireStartGame()" style="background: red; color: white; width: 100%; margin-top: 10px; font-size: 20px; box-shadow: 0 5px 0 #700;">🚨 이륙 승인 (START) 🚨</button>
+    </div>
+
+    <h3 id="room-info" style="color: yellow; display: none; font-family: 'Share Tech Mono'; letter-spacing: 1px;"></h3>
+
+    <!-- 3. 게임 화면들 (패널 디자인 적용) -->
+    
+    <!-- [조종사] -->
+    <div id="pilot-ui" class="role-ui panel">
+        <h3 class="role-title">CAPTAIN: FLIGHT YOKE</h3>
+        <div class="yoke-grid">
+            <div></div>
+            <button class="yoke-btn push-pull" onmousedown="steer('push')">▼ PUSH<br>(하강)</button>
+            <div></div>
+            <button class="yoke-btn" onmousedown="steer('left')">◀ LEFT</button>
+            <div style="display:flex; align-items:center; justify-content:center; color:#555; font-weight:bold;">YOKE</div>
+            <button class="yoke-btn" onmousedown="steer('right')">RIGHT ▶</button>
+            <div></div>
+            <button class="yoke-btn push-pull" onmousedown="steer('pull')">▲ PULL<br>(상승)</button>
+            <div></div>
+        </div>
+    </div>
+
+    <!-- [지도] -->
+    <div id="map-ui" class="role-ui panel" style="background: #111;">
+        <h3 class="role-title">NAVIGATOR: RADAR SYSTEM</h3>
+        <div class="radar-container">
+            <div id="map-error">FATAL ERROR<br><br>SIGNAL LOST</div>
+            <canvas id="radar-canvas" width="330" height="330"></canvas>
+        </div>
+    </div>
+
+    <!-- [수리] -->
+    <div id="repair-ui" class="role-ui panel">
+        <h3 class="role-title">ENGINEER: MAIN PANEL</h3>
+        <div class="wire-section">
+            <h4 style="margin-top:0; color: #ffeb3b;">⚠️ 단선 복구 시스템 (와이어 연결)</h4>
+            <button class="wire-btn" onclick="fixSystem('red')" style="background: #b71c1c;">RED</button>
+            <button class="wire-btn" onclick="fixSystem('blue')" style="background: #0d47a1;">BLUE</button>
+            <button class="wire-btn" onclick="fixSystem('green')" style="background: #1b5e20;">GRN</button>
+        </div>
+        <div class="wire-section">
+            <h4 style="margin-top:0; color: #ffeb3b;">🔒 시스템 Override</h4>
+            <button class="main-btn" onclick="fixSystem('star')" style="background: #e65100; color: white; width: 100%;">EMERGENCY REBOOT</button>
+        </div>
+    </div>
+
+    <!-- [계기판] -->
+    <div id="tcas-ui" class="role-ui panel">
+        <h3 class="role-title">TCAS: ANNUNCIATOR PANEL</h3>
+        <div class="annunciator-grid">
+            <div id="warn-bank" class="warn-light">BANK ANGLE</div>
+            <div id="warn-stall" class="warn-light">STALL</div>
+            <div id="warn-terrain" class="warn-light">TERRAIN</div>
+            <div id="warn-over" class="warn-light">OVERSPEED</div>
+        </div>
+    </div>
+
+    <!-- [통신] -->
+    <div id="comm-ui" class="role-ui panel">
+        <h3 class="role-title">COMMS: RADIO TRANSCEIVER</h3>
+        <div class="radio-lcd">
+            <p id="comm-result" class="radio-text">FREQ: STANDBY...</p>
+        </div>
+        <button id="comm-btn" class="radio-btn" onclick="searchRunway()">[ 송신 ] 주파수 스캔</button>
+    </div>
+
+    <div id="gameLog" style="display: none;"></div>
+
+    <script>
+        const firebaseConfig = {
+            apiKey: "AIzaSyBdX2nqZYkH_V33s_bV8TRpa-rAIiBWbcQ",
+            authDomain: "test-eb398.firebaseapp.com",
+            databaseURL: "https://test-eb398-default-rtdb.firebaseio.com",
+            projectId: "test-eb398",
+            storageBucket: "test-eb398.firebasestorage.app",
+            messagingSenderId: "891253595501",
+            appId: "1:891253595501:web:3ddde2a9c70708c9100e64"
+        };
+        firebase.initializeApp(firebaseConfig);
+        const db = firebase.database();
+
+        const ALL_ROLES = ['조종사_맹인쥐', '지도_항법쥐', '수리_엔지니어쥐', '계기판_TCAS쥐', '관제_통신쥐'];
+        let myRoom = '';
+        let myRole = '';
+        let roomRef = null;
+        let myPlane = { x: 165, y: 165, alt: 5000, bank: 0, pitch: 0 };
+
+        function log(msg) {
+            const logBox = document.getElementById('gameLog');
+            logBox.innerHTML = `<div>${msg}</div>` + logBox.innerHTML;
+        }
+
+        function shuffle(array) {
+            for (let i = array.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [array[i], array[j]] = [array[j], array[i]];
+            }
+            return array;
+        }
+
+        function createRoom() {
+            const code = Math.random().toString(36).substring(2, 6).toUpperCase();
+            db.ref('rooms/' + code).set({
+                gameState: 'waiting',
+                roles: shuffle([...ALL_ROLES]),
+                playerCount: 0,
+                mapStatus: 'normal',
+                myPlane: myPlane
+            }).then(() => {
+                document.getElementById('roomInput').value = code;
+                joinRoom(code);
+            });
+        }
+
+        function joinRoom(autoCode) {
+            myRoom = autoCode || document.getElementById('roomInput').value.toUpperCase();
+            if (!myRoom) return alert("방 코드를 입력하세요!");
+            roomRef = db.ref('rooms/' + myRoom);
+            
+            roomRef.get().then((snapshot) => {
+                if (!snapshot.exists()) return alert("방 코드가 틀렸거나 방이 존재하지 않습니다!");
+                let data = snapshot.val();
+                if (data.gameState !== 'waiting') return alert("이미 게임이 시작된 방입니다!");
+                if (!data.roles || data.roles.length === 0) return alert("방이 꽉 찼습니다! (5명)");
+
+                let availableRoles = data.roles;
+                myRole = availableRoles.pop();
+                let newCount = (data.playerCount || 0) + 1;
+
+                roomRef.update({ roles: availableRoles, playerCount: newCount }).then(() => enterWaitingRoom());
+            });
+        }
+
+        function enterWaitingRoom() {
+            document.getElementById('lobby').style.display = 'none';
+            document.getElementById('waiting-room').style.display = 'block';
+            document.getElementById('wait-code').innerText = myRoom;
+            document.getElementById('wait-role').innerText = myRole;
+
+            roomRef.child('playerCount').on('value', snap => { document.getElementById('wait-count').innerText = snap.val() || 1; });
+            roomRef.child('gameState').on('value', snap => { if (snap.val() === 'playing') launchGame(); });
+        }
+
+        function fireStartGame() { roomRef.child('gameState').set('playing'); }
+
+        function launchGame() {
+            document.getElementById('waiting-room').style.display = 'none';
+            document.getElementById('room-info').style.display = 'block';
+            document.getElementById('gameLog').style.display = 'block';
+            
+            document.getElementById('room-info').innerText = `[ FREQ: ${myRoom} ] ROLE: ${myRole}`;
+            log(`SYSTEM: FLIGHT SEQUENCE INITIATED.`);
+
+            if (myRole === '조종사_맹인쥐') document.getElementById('pilot-ui').style.display = 'block';
+            if (myRole === '지도_항법쥐') document.getElementById('map-ui').style.display = 'block';
+            if (myRole === '수리_엔지니어쥐') document.getElementById('repair-ui').style.display = 'block';
+            if (myRole === '계기판_TCAS쥐') document.getElementById('tcas-ui').style.display = 'block';
+            if (myRole === '관제_통신쥐') document.getElementById('comm-ui').style.display = 'block';
+
+            startGameListeners();
+        }
+
+        function startGameListeners() {
+            roomRef.child('myPlane').on('value', snap => {
+                const data = snap.val();
+                if (data) {
+                    myPlane = data;
+                    if (myRole === '지도_항법쥐') drawMap();
+                    if (myRole === '계기판_TCAS쥐') checkWarnings();
+                }
+            });
+
+            roomRef.child('mapStatus').on('value', snap => {
+                const status = snap.val();
+                if (myRole === '지도_항법쥐') {
+                    document.getElementById('map-error').style.display = (status === 'error') ? 'block' : 'none';
+                }
+            });
+
+            if (myRole === '지도_항법쥐') {
+                setInterval(() => { if (Math.random() < 0.8) roomRef.child('mapStatus').set('error'); }, 15000); 
+            }
+        }
+
+        function steer(dir) {
+            if (dir === 'left') { myPlane.x -= 10; myPlane.bank = -30; }
+            if (dir === 'right') { myPlane.x += 10; myPlane.bank = 30; }
+            if (dir === 'push') { myPlane.alt -= 500; myPlane.pitch = -10; }
+            if (dir === 'pull') { myPlane.alt += 500; myPlane.pitch = 20; }
+            setTimeout(() => { myPlane.bank = 0; myPlane.pitch = 0; roomRef.child('myPlane').set(myPlane); }, 1500);
+            roomRef.child('myPlane').set(myPlane);
+        }
+
+        function drawMap() {
+            const canvas = document.getElementById('radar-canvas');
+            const ctx = canvas.getContext('2d');
+            ctx.clearRect(0, 0, canvas.width, canvas.height); 
+            
+            // 중앙 그리드 십자선
+            ctx.strokeStyle = 'rgba(0, 255, 0, 0.2)';
+            ctx.beginPath(); ctx.moveTo(165, 0); ctx.lineTo(165, 330); ctx.stroke();
+            ctx.beginPath(); ctx.moveTo(0, 165); ctx.lineTo(330, 165); ctx.stroke();
+
+            // 비행기 위치
+            ctx.fillStyle = '#0f0';
+            ctx.shadowBlur = 10;
+            ctx.shadowColor = '#0f0';
+            ctx.fillRect(myPlane.x, myPlane.y, 8, 8);
+            ctx.shadowBlur = 0;
+        }
+
+        function fixSystem(item) {
+            roomRef.child('mapStatus').set('normal');
+            log(`SYS: OVERRIDE ACCEPTED. (${item})`);
+        }
+
+        function checkWarnings() {
+            document.getElementById('warn-bank').className = Math.abs(myPlane.bank) >= 30 ? 'warn-light warn-active' : 'warn-light';
+            document.getElementById('warn-stall').className = myPlane.pitch >= 20 ? 'warn-light warn-active' : 'warn-light';
+            document.getElementById('warn-terrain').className = myPlane.alt <= 1000 ? 'warn-light warn-active' : 'warn-light';
+            document.getElementById('warn-over').className = myPlane.pitch <= -10 ? 'warn-light warn-active' : 'warn-light';
+        }
+
+        function searchRunway() {
+            const btn = document.getElementById('comm-btn');
+            const lcd = document.getElementById('comm-result');
+            
+            btn.disabled = true;
+            btn.innerText = "SCANNING...";
+            lcd.innerText = "FREQ: SCANNING...";
+            lcd.style.color = "#ffaa00"; 
+
+            setTimeout(() => {
+                btn.disabled = false;
+                btn.innerText = "[ 송신 ] 주파수 스캔";
+                if (Math.random() < 0.2) {
+                    lcd.innerText = "FOUND: RWY 32R (GMP)";
+                    lcd.style.color = "#00ffff"; 
+                    log("COMMS: Runway Coordinates Received.");
+                } else {
+                    lcd.innerText = "ERROR: NO SIGNAL";
+                    lcd.style.color = "red"; 
+                }
+            }, 5000);
+        }
+    </script>
+</body>
+</html>
