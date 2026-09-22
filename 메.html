@@ -1,0 +1,22 @@
+
+            // 내 비행기 (조종사가 움직이는 좌표 실시간 반영)
+            ctx.fillStyle = 'lime';
+            ctx.fillRect(myPlane.x, myPlane.y, 10, 10);
+            ctx.fillStyle = 'white';
+            ctx.fillText(`${myPlane.alt}ft`, myPlane.x + 12, myPlane.y + 10);
+
+            // 다른 비행기들
+            if (window.otherPlanes) {
+                window.otherPlanes.forEach(plane => {
+                    ctx.fillStyle = 'red';
+                    ctx.beginPath();
+                    ctx.arc(plane.x, plane.y, 5, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.fillStyle = 'white';
+                    ctx.fillText(`${plane.alt}ft`, plane.x + 8, plane.y + 4);
+                });
+            }
+        }
+    </script>
+</body>
+</html>
