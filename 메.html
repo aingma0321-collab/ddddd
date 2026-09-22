@@ -1,21 +1,302 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>메이데이 마이스 (Mayday Mice)</title>
+    <!-- Firebase SDK 로드 -->
+    <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-database-compat.js"></script>
+    
+    <style>
+        body { font-family: 'Arial', sans-serif; background: #222; color: white; text-align: center; }
+        input, button { padding: 10px; font-size: 18px; margin: 5px; cursor: pointer; }
+        
+        /* 로비 화면 */
+        #lobby { margin-top: 100px; }
+        .room-box { background: #333; padding: 20px; border-radius: 10px; display: inline-block; margin: 10px; }
 
-            // 내 비행기 (조종사가 움직이는 좌표 실시간 반영)
-            ctx.fillStyle = 'lime';
-            ctx.fillRect(myPlane.x, myPlane.y, 10, 10);
-            ctx.fillStyle = 'white';
-            ctx.fillText(`${myPlane.alt}ft`, myPlane.x + 12, myPlane.y + 10);
+        /* 역할별 UI 공통 숨김 처리 */
+        .role-ui { display: none; padding: 20px; border: 3px solid #555; margin-top: 20px; border-radius: 10px; }
 
-            // 다른 비행기들
-            if (window.otherPlanes) {
-                window.otherPlanes.forEach(plane => {
-                    ctx.fillStyle = 'red';
-                    ctx.beginPath();
-                    ctx.arc(plane.x, plane.y, 5, 0, Math.PI * 2);
-                    ctx.fill();
-                    ctx.fillStyle = 'white';
-                    ctx.fillText(`${plane.alt}ft`, plane.x + 8, plane.y + 4);
-                });
+        /* 1. 조종사 */
+        .control-btn { width: 80px; height: 80px; font-size: 16px; font-weight: bold; margin: 5px; }
+        
+        /* 2. 지도 */
+        #radar-canvas { background: #002200; border: 3px solid #0f0; border-radius: 50%; box-shadow: 0 0 20px #0f0; }
+        #map-error { display: none; color: red; font-size: 24px; font-weight: bold; background: yellow; padding: 10px; }
+
+        /* 3. 수리 */
+        .repair-section { background: #444; padding: 10px; margin: 10px; border: 1px solid #777; }
+        
+        /* 4. 계기판 (TCAS) */
+        .warning-light { 
+            display: inline-block; width: 150px; padding: 20px; margin: 10px; 
+            background: #330000; color: #555; font-weight: bold; border-radius: 5px;
+        }
+        .warning-active { background: red; color: white; animation: blink 0.5s infinite; }
+        @keyframes blink { 50% { opacity: 0.5; } }
+
+        /* 5. 통신 */
+        #comm-btn { background: #0055ff; color: white; font-size: 20px; padding: 15px 30px; }
+        #comm-btn:disabled { background: #555; cursor: not-allowed; }
+
+        #gameLog { margin-top: 20px; color: #aaa; font-size: 14px; text-align: left; max-width: 600px; margin-left: auto; margin-right: auto; }
+    </style>
+</head>
+<body>
+    <h1>🐭 메이데이 마이스</h1>
+    
+    <!-- 대기실 (방 만들기 / 참가하기) -->
+    <div id="lobby">
+        <div class="room-box">
+            <h3>새 게임 시작</h3>
+            <button onclick="createRoom()" style="background: #28a745; color: white;">방 만들기</button>
+        </div>
+        <div class="room-box">
+            <h3>기존 게임 참가</h3>
+            <input type="text" id="roomInput" placeholder="방 코드 (예: ABCD)">
+            <button onclick="joinRoom()" style="background: #007bff; color: white;">참가하기</button>
+        </div>
+    </div>
+
+    <!-- 방 정보 표시줄 -->
+    <h3 id="room-info" style="color: yellow;"></h3>
+
+    <!-- ================= 1. 조종사 쥐 화면 ================= -->
+    <div id="pilot-ui" class="role-ui" style="background: #000;">
+        <h2 style="color: #666;">[조종사] 시각 상실 (요크 조작만 가능)</h2>
+        <div><button class="control-btn" onclick="steer('push')">PUSH</button></div>
+        <div>
+            <button class="control-btn" onclick="steer('left')">LEFT</button>
+            <button class="control-btn" onclick="steer('right')">RIGHT</button>
+        </div>
+        <div><button class="control-btn" onclick="steer('pull')">PULL</button></div>
+    </div>
+
+    <!-- ================= 2. 지도 쥐 화면 ================= -->
+    <div id="map-ui" class="role-ui">
+        <h2 style="color: #0f0;">[지도] 항법 레이더</h2>
+        <div id="map-error">SYSTEM ERROR: 수리 쥐에게 고쳐달라고 하세요!</div>
+        <canvas id="radar-canvas" width="400" height="400"></canvas>
+    </div>
+
+    <!-- ================= 3. 수리 쥐 화면 ================= -->
+    <div id="repair-ui" class="role-ui">
+        <h2>[수리] 엔지니어 패널 (지도가 안 보임)</h2>
+        <div class="repair-section">
+            <h3>전선 갈아끼우기</h3>
+            <button onclick="fixSystem('red')">빨강</button>
+            <button onclick="fixSystem('blue')">파랑</button>
+            <button onclick="fixSystem('green')">초록</button>
+        </div>
+        <div class="repair-section">
+            <h3>보안 패드 재확인 (9문양)</h3>
+            <button onclick="fixSystem('star')">⭐</button>
+            <button onclick="fixSystem('moon')">🌙</button>
+            <button onclick="fixSystem('sun')">☀️</button>
+            <!-- 9개 생략 (UI 예시) -->
+        </div>
+        <div class="repair-section">
+            <h3>전력 재정비 (레버)</h3>
+            기내조명 <input type="checkbox" checked> | 
+            화장실 <input type="checkbox" checked>
+        </div>
+    </div>
+
+    <!-- ================= 4. 계기판 쥐 화면 ================= -->
+    <div id="tcas-ui" class="role-ui">
+        <h2>[계기판] 기체 상태 모니터 (조종사에게 경고하세요!)</h2>
+        <div id="warn-bank" class="warning-light">BANK ANGLE! (선회각)</div>
+        <div id="warn-stall" class="warning-light">STALL! (실속)</div>
+        <div id="warn-terrain" class="warning-light">TERRAIN! (고도낮음)</div>
+        <div id="warn-over" class="warning-light">OVERSPEED! (과속)</div>
+    </div>
+
+    <!-- ================= 5. 통신 쥐 화면 ================= -->
+    <div id="comm-ui" class="role-ui">
+        <h2>[통신] 관제탑 주파수 탐색</h2>
+        <p>5초마다 탐색 가능 (활주로 발견 확률 20%)</p>
+        <button id="comm-btn" onclick="searchRunway()">주파수 탐색 시작</button>
+        <h3 id="comm-result" style="color: lime;"></h3>
+    </div>
+
+    <!-- 게임 로그 -->
+    <div id="gameLog"></div>
+
+    <script>
+        // 1. Firebase 초기화
+        const firebaseConfig = {
+            apiKey: "AIzaSyBdX2nqZYkH_V33s_bV8TRpa-rAIiBWbcQ",
+            authDomain: "test-eb398.firebaseapp.com",
+            databaseURL: "https://test-eb398-default-rtdb.firebaseio.com",
+            projectId: "test-eb398",
+            storageBucket: "test-eb398.firebasestorage.app",
+            messagingSenderId: "891253595501",
+            appId: "1:891253595501:web:3ddde2a9c70708c9100e64"
+        };
+        firebase.initializeApp(firebaseConfig);
+        const db = firebase.database();
+
+        // 2. 게임 전역 변수
+        const ALL_ROLES = ['조종사_맹인쥐', '지도_항법쥐', '수리_엔지니어쥐', '계기판_TCAS쥐', '관제_통신쥐'];
+        let myRoom = '';
+        let myRole = '';
+        let roomRef = null;
+        let myPlane = { x: 200, y: 200, alt: 5000, bank: 0, pitch: 0 };
+
+        function log(msg) {
+            document.getElementById('gameLog').innerHTML = `<div>> ${msg}</div>` + document.getElementById('gameLog').innerHTML;
+        }
+
+        // 배열 섞기 (랜덤 직업 부여용)
+        function shuffle(array) {
+            for (let i = array.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [array[i], array[j]] = [array[j], array[i]];
             }
+            return array;
+        }
+
+        // ================= 방 만들기 & 랜덤 직업 로직 =================
+        function createRoom() {
+            // 랜덤 4자리 방 코드 생성 (예: A7F2)
+            const code = Math.random().toString(36).substring(2, 6).toUpperCase();
+            const shuffledRoles = shuffle([...ALL_ROLES]); // 직업 5개 랜덤 섞기
+
+            // Firebase에 방 세팅
+            db.ref('rooms/' + code).set({
+                availableRoles: shuffledRoles,
+                myPlane: myPlane,
+                mapStatus: 'normal' // 지도가 정상인지 고장인지
+            }).then(() => {
+                document.getElementById('roomInput').value = code;
+                joinRoom(code); // 세팅 끝나면 방장이 1빠로 자동 접속
+            });
+        }
+
+        function joinRoom(autoCode) {
+            myRoom = autoCode || document.getElementById('roomInput').value.toUpperCase();
+            if (!myRoom) return alert("방 코드를 입력하세요!");
+
+            roomRef = db.ref('rooms/' + myRoom);
+            
+            // Firebase 트랜잭션: 여러 명이 동시에 접속해도 직업이 안 겹치게 하나씩 뽑아감
+            roomRef.child('availableRoles').transaction((roles) => {
+                if (roles && roles.length > 0) {
+                    myRole = roles.pop(); // 남은 랜덤 직업 중 하나 뽑기
+                    return roles; // 남은 배열 다시 저장
+                }
+                return; // 뽑을 게 없으면(꽉 찼으면) 중단
+            }, (error, committed, snapshot) => {
+                if (error) {
+                    alert("접속 에러!");
+                } else if (!committed) {
+                    alert("방이 꽉 찼거나 존재하지 않습니다!");
+                } else {
+                    enterGameArea();
+                }
+            });
+        }
+
+        function enterGameArea() {
+            document.getElementById('lobby').style.display = 'none';
+            document.getElementById('room-info').innerText = `방 코드: [ ${myRoom} ] | 내 역할: ${myRole}`;
+            log(`[시스템] ${myRole} 역할로 접속 완료!`);
+
+            // 배정받은 역할의 UI만 켜기
+            if (myRole === '조종사_맹인쥐') document.getElementById('pilot-ui').style.display = 'block';
+            if (myRole === '지도_항법쥐') document.getElementById('map-ui').style.display = 'block';
+            if (myRole === '수리_엔지니어쥐') document.getElementById('repair-ui').style.display = 'block';
+            if (myRole === '계기판_TCAS쥐') document.getElementById('tcas-ui').style.display = 'block';
+            if (myRole === '관제_통신쥐') document.getElementById('comm-ui').style.display = 'block';
+
+            startGameListeners();
+        }
+
+        // ================= 게임 통합 리스너 =================
+        function startGameListeners() {
+            // [공통] 비행기 좌표 연동
+            roomRef.child('myPlane').on('value', (snap) => {
+                const data = snap.val();
+                if (data) {
+                    myPlane = data;
+                    if (myRole === '지도_항법쥐') drawMap();
+                    if (myRole === '계기판_TCAS쥐') checkWarnings();
+                }
+            });
+
+            // [공통] 지도 고장 연동
+            roomRef.child('mapStatus').on('value', (snap) => {
+                const status = snap.val();
+                if (myRole === '지도_항법쥐') {
+                    document.getElementById('map-error').style.display = (status === 'error') ? 'block' : 'none';
+                }
+            });
+
+            // 임시: 지도 쥐가 접속하면 40초마다 지도 고장내기 기믹 (테스트를 위해 15초로 단축)
+            if (myRole === '지도_항법쥐') {
+                setInterval(() => {
+                    if (Math.random() < 0.8) roomRef.child('mapStatus').set('error');
+                }, 15000); 
+            }
+        }
+
+        // ================= 역할별 세부 기능 =================
+
+        // 1. 조종사: 조작 시 DB에 반영
+        function steer(dir) {
+            if (dir === 'left') { myPlane.x -= 10; myPlane.bank = -30; }
+            if (dir === 'right') { myPlane.x += 10; myPlane.bank = 30; }
+            if (dir === 'push') { myPlane.alt -= 500; myPlane.pitch = -10; }
+            if (dir === 'pull') { myPlane.alt += 500; myPlane.pitch = 20; }
+            roomRef.child('myPlane').set(myPlane);
+        }
+
+        // 2. 지도: 레이더 그리기 (에러 아닐 때만)
+        function drawMap() {
+            const canvas = document.getElementById('radar-canvas');
+            const ctx = canvas.getContext('2d');
+            ctx.clearRect(0, 0, canvas.width, canvas.height); 
+            ctx.fillStyle = 'lime';
+            ctx.fillRect(myPlane.x, myPlane.y, 10, 10); // 내 비행기 (움직임 반영)
+        }
+
+        // 3. 수리: 미니게임 정답을 누르면 지도를 고쳐줌
+        function fixSystem(item) {
+            // 진짜 게임에선 지도 쥐 화면에 "파란 전선 갈아!" 라고 뜨고 그걸 맞춰야 하지만,
+            // 지금은 프로토타입이므로 아무 버튼이나 누르면 고쳐지게 설정
+            roomRef.child('mapStatus').set('normal');
+            log(`[수리] 시스템 복구 시도: ${item}`);
+        }
+
+        // 4. 계기판(TCAS): 조종사가 움직일 때마다 수치 계산해서 경고등 켬
+        function checkWarnings() {
+            document.getElementById('warn-bank').className = Math.abs(myPlane.bank) >= 30 ? 'warning-light warning-active' : 'warning-light';
+            document.getElementById('warn-stall').className = myPlane.pitch >= 20 ? 'warning-light warning-active' : 'warning-light';
+            document.getElementById('warn-terrain').className = myPlane.alt <= 1000 ? 'warning-light warning-active' : 'warning-light';
+            document.getElementById('warn-over').className = myPlane.pitch <= -10 ? 'warning-light warning-active' : 'warning-light';
+        }
+
+        // 5. 통신: 5초 쿨타임 랜덤 확률(20%)로 활주로 찾기
+        function searchRunway() {
+            const btn = document.getElementById('comm-btn');
+            const resultTxt = document.getElementById('comm-result');
+            
+            btn.disabled = true;
+            btn.innerText = "주파수 탐색 중... (5초)";
+            resultTxt.innerText = "지지직...";
+
+            setTimeout(() => {
+                btn.disabled = false;
+                btn.innerText = "주파수 탐색 시작";
+                
+                if (Math.random() < 0.2) { // 20% 성공
+                    resultTxt.innerText = "성공! [김포 활주로 32R] 발견! 지도 쥐에게 알리세요!";
+                    log("[통신] 이용 가능한 활주로를 발견했습니다!");
+                } else {
+                    resultTxt.innerText = "실패... 통신 불가. 다시 시도하세요.";
+                }
+            }, 5000);
         }
     </script>
 </body>
