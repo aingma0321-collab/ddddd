@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>메이데이 마이스 (Mayday Mice)</title>
+    <!-- Firebase SDK 로드 -->
+    <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-database-compat.js"></script>
+    
+    <style>
+        body { font-family: 'Arial', sans-serif; background: #222; color: white; text-align: center; }
+        input, button { padding: 10px; font-size: 18px; margin: 5px; cursor: pointer; }
+        
+        #lobby { margin-top: 100px; }
+        .room-box { background: #333; padding: 20px; border-radius: 10px; display: inline-block; margin: 10px; }
+        .role-ui { display: none; padding: 20px; border: 3px solid #555; margin-top: 20px; border-radius: 10px; }
+
+        .control-btn { width: 80px; height: 80px; font-size: 16px; font-weight: bold; margin: 5px; }
+        #radar-canvas { background: #002200; border: 3px solid #0f0; border-radius: 50%; box-shadow: 0 0 20px #0f0; }
+        #map-error { display: none; color: red; font-size: 24px; font-weight: bold; background: yellow; padding: 10px; }
+        .repair-section { background: #444; padding: 10px; margin: 10px; border: 1px solid #777; }
+        
+        .warning-light { display: inline-block; width: 150px; padding: 20px; margin: 10px; background: #330000; color: #555; font-weight: bold; border-radius: 5px; }
+        .warning-active { background: red; color: white; animation: blink 0.5s infinite; }
+        @keyframes blink { 50% { opacity: 0.5; } }
+
+        #comm-btn { background: #0055ff; color: white; font-size: 20px; padding: 15px 30px; }
+        #comm-btn:disabled { background: #555; cursor: not-allowed; }
+        #gameLog { margin-top: 20px; color: #aaa; font-size: 14px; text-align: left; max-width: 600px; margin-left: auto; margin-right: auto; }
+    </style>
+</head>
+<body>
+    <h1>🐭 메이데이 마이스</h1>
+    
+    <div id="lobby">
+        <div class="room-box">
+            <h3>새 게임 시작</h3>
+            <button onclick="createRoom()" style="background: #28a745; color: white;">방 만들기</button>
+        </div>
+        <div class="room-box">
+            <h3>기존 게임 참가</h3>
+            <!-- autocomplete="off" 를 추가해 예전 코드가 자동입력되는 현상 방지 -->
+            <input type="text" id="roomInput" placeholder="방 코드 (예: ABCD)" autocomplete="off">
+            <button onclick="joinRoom()" style="background: #007bff; color: white;">참가하기</button>
+        </div>
+    </div>
+
+    <h3 id="room-info" style="color: yellow;"></h3>
+
+    <div id="pilot-ui" class="role-ui" style="background: #000;">
+        <h2 style="color: #666;">[조종사] 시각 상실 (요크 조작만 가능)</h2>
+        <div><button class="control-btn" onclick="steer('push')">PUSH</button></div>
+        <div>
+            <button class="control-btn" onclick="steer('left')">LEFT</button>
+            <button class="control-btn" onclick="steer('right')">RIGHT</button>
+        </div>
+        <div><button class="control-btn" onclick="steer('pull')">PULL</button></div>
+    </div>
+
+    <div id="map-ui" class="role-ui">
+        <h2 style="color: #0f0;">[지도] 항법 레이더</h2>
+        <div id="map-error">SYSTEM ERROR: 수리 쥐에게 고쳐달라고 하세요!</div>
+        <canvas id="radar-canvas" width="400" height="400"></canvas>
+    </div>
+
+    <div id="repair-ui" class="role-ui">
+        <h2>[수리] 엔지니어 패널</h2>
+        <div class="repair-section">
+            <h3>전선 갈아끼우기</h3>
+            <button onclick="fixSystem('red')">빨강</button>
+            <button onclick="fixSystem('blue')">파랑</button>
+            <button onclick="fixSystem('green')">초록</button>
+        </div>
+        <div class="repair-section">
+            <h3>보안 패드 (수리 임시버튼)</h3>
+            <button onclick="fixSystem('star')">⭐ 수리 완료하기</button>
+        </div>
+    </div>
+
+    <div id="tcas-ui" class="role-ui">
+        <h2>[계기판] 기체 상태 모니터</h2>
+        <div id="warn-bank" class="warning-light">BANK ANGLE! (선회각)</div>
+        <div id="warn-stall" class="warning-light">STALL! (실속)</div>
+        <div id="warn-terrain" class="warning-light">TERRAIN! (고도낮음)</div>
+        <div id="warn-over" class="warning-light">OVERSPEED! (과속)</div>
+    </div>
+
+    <div id="comm-ui" class="role-ui">
+        <h2>[통신] 관제탑 주파수 탐색</h2>
+        <button id="comm-btn" onclick="searchRunway()">주파수 탐색 시작</button>
+        <h3 id="comm-result" style="color: lime;"></h3>
+    </div>
+
+    <div id="gameLog"></div>
+
+    <script>
+        const firebaseConfig = {
+            apiKey: "AIzaSyBdX2nqZYkH_V33s_bV8TRpa-rAIiBWbcQ",
+            authDomain: "test-eb398.firebaseapp.com",
+            databaseURL: "https://test-eb398-default-rtdb.firebaseio.com",
+            projectId: "test-eb398",
+            storageBucket: "test-eb398.firebasestorage.app",
+            messagingSenderId: "891253595501",
+            appId: "1:891253595501:web:3ddde2a9c70708c9100e64"
+        };
+        firebase.initializeApp(firebaseConfig);
+        const db = firebase.database();
+
+        const ALL_ROLES = ['조종사_맹인쥐', '지도_항법쥐', '수리_엔지니어쥐', '계기판_TCAS쥐', '관제_통신쥐'];
+        let myRoom = '';
+        let myRole = '';
+        let roomRef = null;
+        let myPlane = { x: 200, y: 200, alt: 5000, bank: 0, pitch: 0 };
+
+        function log(msg) {
+            document.getElementById('gameLog').innerHTML = `<div>> ${msg}</div>` + document.getElementById('gameLog').innerHTML;
+        }
+
+        function shuffle(array) {
+            for (let i = array.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [array[i], array[j]] = [array[j], array[i]];
+            }
+            return array;
+        }
+
+        function createRoom() {
+            const code = Math.random().toString(36).substring(2, 6).toUpperCase();
+            const shuffledRoles = shuffle([...ALL_ROLES]);
+
+            db.ref('rooms/' + code).set({
+                availableRoles: shuffledRoles,
+                myPlane: myPlane,
+                mapStatus: 'normal'
+            }).then(() => {
+                document.getElementById('roomInput').value = code;
+                
+                // 파이어베이스에 방이 완벽히 만들어진 후 0.5초 뒤에 입장 (타이밍 버그 완벽 방지)
+                setTimeout(() => {
+                    joinRoom(code);
+                }, 500);
+            }).catch(error => {
+                alert("서버 연결 실패! Firebase Rules 설정을 확인하세요.");
+            });
+        }
+
+        function joinRoom(autoCode) {
+            myRoom = autoCode || document.getElementById('roomInput').value.toUpperCase();
+            if (!myRoom) return alert("방 코드를 입력하세요!");
+
+            roomRef = db.ref('rooms/' + myRoom);
+            
+            // transaction 방식 대신 get() 방식으로 안전하게 데이터 읽어오기
+            roomRef.child('availableRoles').get().then((snapshot) => {
+                if (snapshot.exists()) {
+                    let roles = snapshot.val();
+                    
+                    if (roles && roles.length > 0) {
+                        myRole = roles.pop(); // 직업 하나 가져오기
+                        
+                        // 남은 직업 다시 서버에 저장 후 방 입장
+                        roomRef.child('availableRoles').set(roles).then(() => {
+                            enterGameArea();
+                        });
+                    } else {
+                        alert("방이 꽉 찼습니다! (5명 초과)");
+                    }
+                } else {
+                    alert("방이 존재하지 않습니다! 코드를 다시 확인하세요.");
+                }
+            }).catch(error => {
+                alert("데이터를 불러오지 못했습니다. 파이어베이스 권한을 확인해주세요.");
+            });
+        }
+
+        function enterGameArea() {
+            document.getElementById('lobby').style.display = 'none';
+            document.getElementById('room-info').innerText = `방 코드: [ ${myRoom} ] | 내 역할: ${myRole}`;
+            log(`[시스템] ${myRole} 접속 완료!`);
+
+            if (myRole === '조종사_맹인쥐') document.getElementById('pilot-ui').style.display = 'block';
+            if (myRole === '지도_항법쥐') document.getElementById('map-ui').style.display = 'block';
+            if (myRole === '수리_엔지니어쥐') document.getElementById('repair-ui').style.display = 'block';
+            if (myRole === '계기판_TCAS쥐') document.getElementById('tcas-ui').style.display = 'block';
+            if (myRole === '관제_통신쥐') document.getElementById('comm-ui').style.display = 'block';
+
+            startGameListeners();
+        }
+
+        function startGameListeners() {
+            roomRef.child('myPlane').on('value', (snap) => {
+                const data = snap.val();
+                if (data) {
+                    myPlane = data;
+                    if (myRole === '지도_항법쥐') drawMap();
+                    if (myRole === '계기판_TCAS쥐') checkWarnings();
+                }
+            });
+
+            roomRef.child('mapStatus').on('value', (snap) => {
+                const status = snap.val();
+                if (myRole === '지도_항법쥐') {
+                    document.getElementById('map-error').style.display = (status === 'error') ? 'block' : 'none';
+                }
+            });
+
+            if (myRole === '지도_항법쥐') {
+                setInterval(() => {
+                    if (Math.random() < 0.8) roomRef.child('mapStatus').set('error');
+                }, 15000); 
+            }
+        }
+
+        function steer(dir) {
+            if (dir === 'left') { myPlane.x -= 10; myPlane.bank = -30; }
+            if (dir === 'right') { myPlane.x += 10; myPlane.bank = 30; }
+            if (dir === 'push') { myPlane.alt -= 500; myPlane.pitch = -10; }
+            if (dir === 'pull') { myPlane.alt += 500; myPlane.pitch = 20; }
+            
+            setTimeout(() => { myPlane.bank = 0; myPlane.pitch = 0; roomRef.child('myPlane').set(myPlane); }, 2000);
+            roomRef.child('myPlane').set(myPlane);
+        }
+
+        function drawMap() {
+            const canvas = document.getElementById('radar-canvas');
+            const ctx = canvas.getContext('2d');
+            ctx.clearRect(0, 0, canvas.width, canvas.height); 
+            ctx.fillStyle = 'lime';
+            ctx.fillRect(myPlane.x, myPlane.y, 10, 10);
+        }
+
+        function fixSystem(item) {
+            roomRef.child('mapStatus').set('normal');
+            log(`[수리] 시스템 복구 완료!`);
+        }
+
+        function checkWarnings() {
+            document.getElementById('warn-bank').className = Math.abs(myPlane.bank) >= 30 ? 'warning-light warning-active' : 'warning-light';
+            document.getElementById('warn-stall').className = myPlane.pitch >= 20 ? 'warning-light warning-active' : 'warning-light';
+            document.getElementById('warn-terrain').className = myPlane.alt <= 1000 ? 'warning-light warning-active' : 'warning-light';
+            document.getElementById('warn-over').className = myPlane.pitch <= -10 ? 'warning-light warning-active' : 'warning-light';
+        }
+
+        function searchRunway() {
+            const btn = document.getElementById('comm-btn');
+            const resultTxt = document.getElementById('comm-result');
+            
+            btn.disabled = true;
+            btn.innerText = "탐색 중... (5초)";
+            resultTxt.innerText = "지지직...";
+
+            setTimeout(() => {
+                btn.disabled = false;
+                btn.innerText = "주파수 탐색 시작";
+                if (Math.random() < 0.2) {
+                    resultTxt.innerText = "성공! [김포 32R] 발견!";
+                    log("활주로를 발견했습니다!");
+                } else {
+                    resultTxt.innerText = "실패... 다시 시도하세요.";
+                }
+            }, 5000);
+        }
+    </script>
+</body>
+</html>
