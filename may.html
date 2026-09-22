@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>메이데이 마이스 (Firebase Online)</title>
+    <!-- Firebase SDK (호환성 버전) 로드 -->
+    <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-database-compat.js"></script>
+    
+    <style>
+        body { font-family: 'Arial', sans-serif; background: #222; color: white; text-align: center; }
+        
+        #lobby { margin-top: 100px; }
+        input, button { padding: 10px; font-size: 18px; margin: 5px; }
+
+        /* 조종사 전용 UI */
+        #pilot-ui { display: none; background: #000; height: 100vh; padding-top: 50px; }
+        .control-btn { 
+            width: 100px; height: 100px; font-size: 20px; font-weight: bold; 
+            margin: 10px; background: #fff; color: #000; border: 5px solid #555; 
+            border-radius: 10px; cursor: pointer;
+        }
+        .control-btn:active { background: #aaa; }
+
+        /* 지도 쥐 전용 UI */
+        #map-ui { display: none; }
+        #radar-canvas { background: #002200; border: 3px solid #0f0; border-radius: 50%; box-shadow: 0 0 20px #0f0; }
+        
+        #gameLog { margin-top: 20px; color: #aaa; font-size: 14px; }
+    </style>
+</head>
+<body>
+    <h1>🐭 생쥐 비행기 조종석 (Online)</h1>
+    
+    <div id="lobby">
+        <input type="text" id="roomInput" placeholder="방 코드 (예: ROOM1)">
+        <button onclick="joinRoom()">비행 시작</button>
+    </div>
+
+    <!-- 1. 조종사 쥐 화면 -->
+    <div id="pilot-ui">
+        <h2 style="color: #666;">[시각 상실] 요크(조종간) 감각만 느껴집니다</h2>
+        <div style="color: yellow; margin-bottom: 20px;">내 고도: <span id="pilot-alt">5000</span> ft</div>
+        <div><button class="control-btn" onclick="steer('push')">PUSH<br>(하강)</button></div>
+        <div>
+            <button class="control-btn" onclick="steer('left')">LEFT<br>(좌)</button>
+            <button class="control-btn" onclick="steer('right')">RIGHT<br>(우)</button>
+        </div>
+        <div><button class="control-btn" onclick="steer('pull')">PULL<br>(상승)</button></div>
+    </div>
+
+    <!-- 2. 지도 쥐 화면 -->
+    <div id="map-ui">
+        <h2 style="color: #0f0;">항법 지도 시스템 (실시간 연동)</h2>
+        <canvas id="radar-canvas" width="400" height="400"></canvas>
+        <p style="color: yellow;">초록색: 우리 비행기 | 빨간색: 다른 비행기 (충돌 주의!)</p>
+    </div>
+
+    <div id="gameLog"></div>
+
+    <script>
+        // 1. Firebase 초기화 (제공해주신 설정값 적용)
+        const firebaseConfig = {
+            apiKey: "AIzaSyBdX2nqZYkH_V33s_bV8TRpa-rAIiBWbcQ",
+            authDomain: "test-eb398.firebaseapp.com",
+            databaseURL: "https://test-eb398-default-rtdb.firebaseio.com",
+            projectId: "test-eb398",
+            storageBucket: "test-eb398.firebasestorage.app",
+            messagingSenderId: "891253595501",
+            appId: "1:891253595501:web:3ddde2a9c70708c9100e64",
+            measurementId: "G-YHBCECWKPL"
+        };
+        firebase.initializeApp(firebaseConfig);
+        const db = firebase.database();
+
+        // 2. 게임 변수
+        let roomCode = '';
+        let myRole = '';
+        const ROLES = ['조종사_맹인쥐', '지도_항법쥐', '수리_엔지니어쥐', '계기판_TCAS쥐', '관제_통신쥐'];
+        let myPlane = { x: 200, y: 200, alt: 5000 };
+
+        function log(msg) {
+            document.getElementById('gameLog').innerHTML += `<div>${msg}</div>`;
+        }
+
+        // 3. 방 입장 로직
+        function joinRoom() {
+            roomCode = document.getElementById('roomInput').value;
+            if (!roomCode) return alert("방 코드를 입력하세요!");
+
+            const roomRef = db.ref('rooms/' + roomCode);
+            
+            // 현재 방의 플레이어 수 확인 후 역할 배정
+            roomRef.child('players').once('value', (snapshot) => {
+                let playerCount = snapshot.numChildren();
+                
+                if (playerCount >= 5) {
+                    return alert("방이 꽉 찼습니다!");
+                }
+
+                // 남은 역할 순서대로 부여
+                myRole = ROLES[playerCount];
+                const myPlayerId = 'player_' + playerCount;
+                
+                // DB에 내 접속 정보 저장 (브라우저 끄면 자동 삭제되도록 onDisconnect 설정)
+                const myRef = roomRef.child('players').child(myPlayerId);
+                myRef.set({ role: myRole });
+                myRef.onDisconnect().remove();
+
+                document.getElementById('lobby').style.display = 'none';
+                log(`방 [${roomCode}]에 접속했습니다. 당신의 역할: <b>${myRole}</b>`);
+
+                setupGameUI(roomRef);
+            });
+        }
+
+        // 4. 역할별 UI 설정 및 DB 리스너 연동
+        function setupGameUI(roomRef) {
+            if (myRole === '조종사_맹인쥐') {
+                document.getElementById('pilot-ui').style.display = 'block';
+                // 게임 시작 시 초기 위치 DB 업로드
+                roomRef.child('myPlane').set(myPlane);
+            } 
+            else if (myRole === '지도_항법쥐') {
+                document.getElementById('map-ui').style.display = 'block';
+                startMapRatLogic(roomRef);
+            }
+
+            // [공통] 조종사가 비행기를 움직이면 내 화면(지도)에 실시간 반영
+            roomRef.child('myPlane').on('value', (snapshot) => {
+                const planeData = snapshot.val();
+                if (planeData) {
+                    myPlane = planeData;
+                    if (myRole === '지도_항법쥐') drawMap();
+                    if (myRole === '조종사_맹인쥐') {
+                        document.getElementById('pilot-alt').innerText = myPlane.alt;
+                    }
+                }
+            });
+
+            // [공통] 다른 비행기 스폰 실시간 반영
+            roomRef.child('otherPlanes').on('value', (snapshot) => {
+                window.otherPlanes = snapshot.val() || [];
+                if (myRole === '지도_항법쥐') drawMap();
+            });
+        }
+
+        /* ================= 조종사 쥐 (Firebase Write) ================= */
+        function steer(direction) {
+            if (direction === 'left') myPlane.x -= 10;
+            if (direction === 'right') myPlane.x += 10;
+            if (direction === 'push') myPlane.alt -= 500; // 고도 하강
+            if (direction === 'pull') myPlane.alt += 500; // 고도 상승
+
+            // 조작 결과를 DB에 업데이트 (다른 쥐들 지도에 즉각 반영됨)
+            db.ref('rooms/' + roomCode + '/myPlane').set(myPlane);
+        }
+
+        /* ================= 지도 쥐 (Firebase Write/Read & Draw) ================= */
+        function startMapRatLogic(roomRef) {
+            // 지도 쥐가 '방장' 역할을 하여 15초마다 50% 확률로 다른 비행기 생성
+            setInterval(() => {
+                if (Math.random() < 0.5) {
+                    const randomAlt = Math.floor(Math.random() * 9001) + 1000; // 1000~10000
+                    const newPlane = {
+                        x: Math.random() * 350 + 25, 
+                        y: Math.random() * 350 + 25, 
+                        alt: randomAlt
+                    };
+                    
+                    // 기존 비행기 목록에 추가하여 DB 업데이트
+                    let currentPlanes = window.otherPlanes || [];
+                    currentPlanes.push(newPlane);
+                    roomRef.child('otherPlanes').set(currentPlanes);
+                    log(`[경고] 고도 ${randomAlt}ft 에 미확인 비행물체 출현!`);
+                }
+            }, 15000);
+        }
+
+        // 레이더 그리기
+        function drawMap() {
+            const canvas = document.getElementById('radar-canvas');
+            const ctx = canvas.getContext('2d');
+            ctx.clearRect(0, 0, canvas.width, canvas.height); 
+
+            // 내 비행기 (조종사가 움직이는 좌표 실시간 반영)
+            ctx.fillStyle = 'lime';
+            ctx.fillRect(myPlane.x, myPlane.y, 10, 10);
+            ctx.fillStyle = 'white';
+            ctx.fillText(`${myPlane.alt}ft`, myPlane.x + 12, myPlane.y + 10);
+
+            // 다른 비행기들
+            if (window.otherPlanes) {
+                window.otherPlanes.forEach(plane => {
+                    ctx.fillStyle = 'red';
+                    ctx.beginPath();
+                    ctx.arc(plane.x, plane.y, 5, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.fillStyle = 'white';
+                    ctx.fillText(`${plane.alt}ft`, plane.x + 8, plane.y + 4);
+                });
+            }
+        }
+    </script>
+</body>
+</html>
